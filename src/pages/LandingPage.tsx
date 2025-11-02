@@ -64,8 +64,8 @@ export default function LandingPage() {
   const currentContent = content[language];
 
   return (
-    <div className="min-h-screen transition-colors duration-300">
-      <div className="bg-linear-to-br from-emerald-50 via-white to-teal-50 dark:from-gray-900 dark:via-gray-800 dark:to-emerald-900 min-h-screen">
+    <div className="min-h-screen">
+      <div className="bg-linear-to-br from-emerald-50 via-white to-teal-50 min-h-screen">
         {/* Header */}
         <header className="relative z-10 px-4 py-6 sm:px-6 lg:px-8">
           <div className="max-w-7xl mx-auto flex justify-between items-center">
@@ -73,7 +73,7 @@ export default function LandingPage() {
               <div className="w-8 h-8 bg-linear-to-r from-emerald-600 to-teal-600 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-sm">M</span>
               </div>
-              <span className="text-xl font-bold text-gray-900 dark:text-white">
+              <span className="text-xl font-bold text-gray-900">
                 Molinar
               </span>
             </div>
@@ -82,7 +82,7 @@ export default function LandingPage() {
               {/* Language Toggle */}
               <button
                 onClick={toggleLanguage}
-                className="px-3 py-2 rounded-lg bg-white dark:bg-gray-800 shadow-md hover:shadow-lg transition-all duration-200 text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700"
+                className="px-3 py-2 rounded-lg bg-white shadow-md hover:shadow-lg transition-all duration-200 text-sm font-medium text-gray-700 border border-gray-200"
               >
                 {language === "id" ? "🇮🇩 ID" : "🇺🇸 EN"}
               </button>
@@ -94,18 +94,18 @@ export default function LandingPage() {
         <section className="relative px-4 py-20 sm:px-6 lg:px-8">
           <div className="max-w-4xl mx-auto text-center">
             {/* Floating Elements */}
-            <div className="absolute top-10 left-10 w-20 h-20 bg-emerald-200 dark:bg-emerald-800 rounded-full opacity-20 animate-pulse"></div>
-            <div className="absolute top-32 right-16 w-16 h-16 bg-teal-200 dark:bg-teal-800 rounded-full opacity-20 animate-pulse delay-1000"></div>
-            <div className="absolute bottom-20 left-20 w-12 h-12 bg-green-200 dark:bg-green-800 rounded-full opacity-20 animate-pulse delay-2000"></div>
+            <div className="absolute top-10 left-10 w-20 h-20 bg-emerald-200 rounded-full opacity-20 animate-pulse"></div>
+            <div className="absolute top-32 right-16 w-16 h-16 bg-teal-200 rounded-full opacity-20 animate-pulse delay-1000"></div>
+            <div className="absolute bottom-20 left-20 w-12 h-12 bg-green-200 rounded-full opacity-20 animate-pulse delay-2000"></div>
 
             <div className="relative z-10">
-              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-gray-900 dark:text-white mb-6 leading-tight">
+              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-gray-900 mb-6 leading-tight">
                 <span className="bg-linear-to-r from-emerald-600 via-teal-600 to-green-600 bg-clip-text text-transparent">
                   {currentContent.title}
                 </span>
               </h1>
 
-              <p className="text-xl sm:text-2xl text-gray-600 dark:text-gray-300 mb-12 max-w-3xl mx-auto leading-relaxed">
+              <p className="text-xl sm:text-2xl text-gray-600 mb-12 max-w-3xl mx-auto leading-relaxed">
                 {currentContent.subtitle}
               </p>
 
@@ -124,26 +124,26 @@ export default function LandingPage() {
         </section>
 
         {/* Steps Section */}
-        <section className="px-4 py-20 sm:px-6 lg:px-8 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm">
+        <section className="px-4 py-20 sm:px-6 lg:px-8 bg-white/50 backdrop-blur-sm">
           <div className="max-w-6xl mx-auto">
-            <h2 className="text-4xl font-bold text-center text-gray-900 dark:text-white mb-16">
+            <h2 className="text-4xl font-bold text-center text-gray-900 mb-16">
               {currentContent.stepsTitle}
             </h2>
 
             <div className="max-w-4xl mx-auto space-y-8">
               {currentContent.steps.map((step, index) => (
                 <div key={index} className="group relative">
-                  <div className="flex items-start space-x-6 bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 border border-gray-100 dark:border-gray-700">
+                  <div className="flex items-start space-x-6 bg-white rounded-2xl p-8 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 border border-gray-100">
                     <div className="shrink-0">
                       <div className="w-16 h-16 bg-linear-to-r from-emerald-600 to-teal-600 rounded-2xl flex items-center justify-center text-white font-bold text-xl shadow-lg">
                         {step.number}
                       </div>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
+                      <h3 className="text-2xl font-semibold text-gray-900 mb-4">
                         {step.title}
                       </h3>
-                      <p className="text-lg text-gray-600 dark:text-gray-300 leading-relaxed">
+                      <p className="text-lg text-gray-600 leading-relaxed">
                         {step.description}
                       </p>
                     </div>
@@ -152,7 +152,7 @@ export default function LandingPage() {
                   {/* Connection Line */}
                   {index < currentContent.steps.length - 1 && (
                     <div className="flex justify-center my-4">
-                      <div className="w-0.5 h-8 bg-linear-to-b from-emerald-300 to-teal-300 dark:from-emerald-700 dark:to-teal-700"></div>
+                      <div className="w-0.5 h-8 bg-linear-to-b from-emerald-300 to-teal-300"></div>
                     </div>
                   )}
                 </div>
@@ -181,12 +181,12 @@ export default function LandingPage() {
                     />
                   </svg>
                 </div>
-                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">
+                <h3 className="text-xl font-semibold text-gray-900 mb-3">
                   {language === "id"
                     ? "Aman & Terpercaya"
                     : "Secure & Reliable"}
                 </h3>
-                <p className="text-gray-600 dark:text-gray-300">
+                <p className="text-gray-600">
                   {language === "id"
                     ? "Konfigurasi perangkat dengan protokol keamanan terdepan"
                     : "Configure devices with cutting-edge security protocols"}
@@ -209,12 +209,12 @@ export default function LandingPage() {
                     />
                   </svg>
                 </div>
-                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">
+                <h3 className="text-xl font-semibold text-gray-900 mb-3">
                   {language === "id"
                     ? "Koneksi Fleksibel"
                     : "Flexible Connection"}
                 </h3>
-                <p className="text-gray-600 dark:text-gray-300">
+                <p className="text-gray-600">
                   {language === "id"
                     ? "Mendukung WiFi Access Point dan Station mode"
                     : "Supports WiFi Access Point and Station modes"}
@@ -237,10 +237,10 @@ export default function LandingPage() {
                     />
                   </svg>
                 </div>
-                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">
+                <h3 className="text-xl font-semibold text-gray-900 mb-3">
                   {language === "id" ? "Setup Cepat" : "Quick Setup"}
                 </h3>
-                <p className="text-gray-600 dark:text-gray-300">
+                <p className="text-gray-600">
                   {language === "id"
                     ? "Konfigurasi perangkat IoT dalam hitungan menit"
                     : "Configure IoT devices in minutes"}
@@ -251,9 +251,9 @@ export default function LandingPage() {
         </section>
 
         {/* Footer */}
-        <footer className="px-4 py-8 sm:px-6 lg:px-8 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800">
+        <footer className="px-4 py-8 sm:px-6 lg:px-8 bg-gray-50 border-t border-gray-200">
           <div className="max-w-6xl mx-auto text-center">
-            <p className="text-gray-600 dark:text-gray-400">
+            <p className="text-gray-600">
               {currentContent.footer}
             </p>
           </div>
