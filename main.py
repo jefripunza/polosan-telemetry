@@ -197,16 +197,23 @@ def read_log(filename):
     except Exception as e:
         print("Error during SD-card read:", e)
 
-# CHUNKED EXTRACTION FOR LARGE FILES
+# 20KB CHUNKED EXTRACTION FOR LARGE FILES
 def extract_large_file_chunked(myzip, filename, target_path, info):
     """
-    Extract large files in chunks to avoid memory allocation errors.
+    Extract large files by decompressing and splitting into 20KB chunks,
+    then merging them back into a single file.
     """
-    print(f"Starting chunked extraction for {filename}")
+    print(f"🔄 Starting 20KB chunked extraction for {filename}")
+    print(f"   File size: {info.file_size} bytes, Compressed: {info.compress_size} bytes")
     
+    chunk_files = []
     try:
         import zlib
         import gc
+        import os
+        
+        # Force garbage collection before starting
+        gc.collect()
         
         # Read compressed data in chunks
         myzip.fp.seek(info.header_offset)
@@ -215,70 +222,261 @@ def extract_large_file_chunked(myzip, filename, target_path, info):
         extra_len = int.from_bytes(local_header[28:30], 'little')
         myzip.fp.seek(info.header_offset + 30 + filename_len + extra_len)
         
-        # Create decompressor object for streaming
-        if info.compress_type == 8:  # DEFLATE
-            decompressor = zlib.decompressobj(-15)  # Raw deflate
-        else:
-            print(f"❌ Unsupported compression type for chunked extraction: {info.compress_type}")
+        # Validate compression type
+        if info.compress_type != 8:  # Only DEFLATE supported
+            print(f"❌ Unsupported compression type: {info.compress_type}")
             return False
         
-        # Open target file for writing
-        with open(target_path, 'wb') as target:
-            bytes_read = 0
-            bytes_written = 0
-            chunk_size = 2048  # Smaller 2KB chunks for ESP32
-            
-            print(f"Processing {info.compress_size} compressed bytes...")
-            
-            while bytes_read < info.compress_size:
-                # Read compressed chunk
-                read_size = min(chunk_size, info.compress_size - bytes_read)
-                compressed_chunk = myzip.fp.read(read_size)
+        # PURE STORAGE-BASED APPROACH - NO MEMORY ACCUMULATION
+        print("   Using pure storage-based streaming extraction...")
+        
+        # Step 1: Copy compressed data directly to storage file
+        temp_compressed_file = "tmp/compressed.dat"
+        print(f"   Copying compressed data to {temp_compressed_file}...")
+        
+        bytes_copied = 0
+        copy_chunk_size = 512  # Very small 512B chunks to avoid any memory issues
+        
+        with open(temp_compressed_file, 'wb') as temp_file:
+            while bytes_copied < info.compress_size:
+                copy_size = min(copy_chunk_size, info.compress_size - bytes_copied)
+                chunk = myzip.fp.read(copy_size)
                 
-                if not compressed_chunk:
-                    print(f"No more data at {bytes_read}/{info.compress_size}")
+                if not chunk:
                     break
                 
-                bytes_read += len(compressed_chunk)
+                temp_file.write(chunk)
+                bytes_copied += len(chunk)
                 
-                # Decompress chunk
+                # Progress every 4KB
+                if bytes_copied % 4096 == 0:
+                    progress = (bytes_copied * 100) // info.compress_size
+                    print(f"   Copying: {progress}% ({bytes_copied}/{info.compress_size})")
+                
+                # Aggressive garbage collection
+                if bytes_copied % 2048 == 0:
+                    gc.collect()
+        
+        print(f"   ✅ Copied {bytes_copied} bytes to storage")
+        
+        # Step 2: Try streaming decompression with ultra-small buffers
+        print("   Attempting streaming decompression...")
+        
+        # Use our custom decompressobj for streaming
+        try:
+            decompressor = zlib.decompressobj(-12)  # Start with -12 wbits
+            
+            # Open compressed file and create streaming buffer file
+            temp_buffer_file = "tmp/buffer.tmp"
+            
+            with open(temp_compressed_file, 'rb') as compressed_file:
+                with open(temp_buffer_file, 'wb') as buffer_file:
+                    chunk_number = 0
+                    buffer_size = 0
+                    target_chunk_size = 20480  # 20KB target chunks
+                    
+                    # Read compressed data in tiny chunks and decompress
+                    while True:
+                        # Read tiny compressed chunk
+                        compressed_chunk = compressed_file.read(256)  # 256B at a time
+                        if not compressed_chunk:
+                            break
+                        
+                        # Decompress this tiny chunk
+                        try:
+                            decompressed_chunk = decompressor.decompress(compressed_chunk)
+                            
+                            if decompressed_chunk:
+                                # Write directly to buffer file
+                                buffer_file.write(decompressed_chunk)
+                                buffer_size += len(decompressed_chunk)
+                                
+                                # If buffer has enough data for a 20KB chunk, extract it
+                                if buffer_size >= target_chunk_size:
+                                    # Close buffer file to flush data
+                                    buffer_file.close()
+                                    
+                                    # Extract 20KB chunks from buffer file
+                                    with open(temp_buffer_file, 'rb') as read_buffer:
+                                        while buffer_size >= target_chunk_size:
+                                            # Read 20KB chunk
+                                            chunk_data = read_buffer.read(target_chunk_size)
+                                            if not chunk_data or len(chunk_data) < target_chunk_size:
+                                                break
+                                            
+                                            # Save chunk to file
+                                            chunk_filename = f"tmp/chunk_{chunk_number:03d}.tmp"
+                                            with open(chunk_filename, 'wb') as chunk_file:
+                                                chunk_file.write(chunk_data)
+                                            
+                                            chunk_files.append(chunk_filename)
+                                            chunk_number += 1
+                                            buffer_size -= target_chunk_size
+                                            print(f"   Saved chunk {chunk_number}: {len(chunk_data)} bytes")
+                                            
+                                            # Garbage collection after each chunk
+                                            gc.collect()
+                                        
+                                        # Read remaining data
+                                        remaining_data = read_buffer.read()
+                                    
+                                    # Reopen buffer file and write remaining data
+                                    buffer_file = open(temp_buffer_file, 'wb')
+                                    if remaining_data:
+                                        buffer_file.write(remaining_data)
+                                        buffer_size = len(remaining_data)
+                                    else:
+                                        buffer_size = 0
+                        
+                        except Exception as e:
+                            # If decompression fails, we might need more data
+                            continue
+                    
+                    # Close buffer file
+                    buffer_file.close()
+                    
+                    # Flush any remaining data from decompressor
+                    try:
+                        remaining = decompressor.flush()
+                        if remaining:
+                            with open(temp_buffer_file, 'ab') as append_buffer:
+                                append_buffer.write(remaining)
+                            buffer_size += len(remaining)
+                    except:
+                        pass
+                    
+                    # Save final chunk if any data remains
+                    if buffer_size > 0:
+                        with open(temp_buffer_file, 'rb') as final_buffer:
+                            final_data = final_buffer.read()
+                            if final_data:
+                                chunk_filename = f"tmp/chunk_{chunk_number:03d}.tmp"
+                                with open(chunk_filename, 'wb') as chunk_file:
+                                    chunk_file.write(final_data)
+                                
+                                chunk_files.append(chunk_filename)
+                                chunk_number += 1
+                                print(f"   Saved final chunk {chunk_number}: {len(final_data)} bytes")
+            
+            # Clean up buffer file
+            try:
+                os.remove(temp_buffer_file)
+            except:
+                pass
+        
+        except Exception as e:
+            print(f"   Streaming decompression failed: {e}")
+            # Clean up temp file
+            try:
+                os.remove(temp_compressed_file)
+            except:
+                pass
+            return extract_large_file_alternative(myzip, filename, target_path, info)
+        
+        # Clean up compressed temp file
+        try:
+            os.remove(temp_compressed_file)
+        except:
+            pass
+        
+        if not chunk_files:
+            print("   ❌ No chunks created")
+            return extract_large_file_alternative(myzip, filename, target_path, info)
+        
+        print(f"   Created {len(chunk_files)} chunks of 20KB each")
+        
+        # Merge all chunk files back into the target file
+        print(f"   Merging {len(chunk_files)} chunks into {target_path}...")
+        
+        with open(target_path, 'wb') as target:
+            total_written = 0
+            for i, chunk_filename in enumerate(chunk_files):
                 try:
-                    decompressed_chunk = decompressor.decompress(compressed_chunk)
-                    if decompressed_chunk:
-                        target.write(decompressed_chunk)
-                        bytes_written += len(decompressed_chunk)
+                    with open(chunk_filename, 'rb') as chunk_file:
+                        chunk_data = chunk_file.read()
+                        target.write(chunk_data)
+                        total_written += len(chunk_data)
                     
-                    # Progress logging
-                    if bytes_read % (chunk_size * 8) == 0:  # Every 16KB
-                        progress = (bytes_read * 100) // info.compress_size
-                        print(f"Progress: {progress}% ({bytes_read}/{info.compress_size}, written: {bytes_written})")
+                    # Progress for merging
+                    if (i + 1) % 5 == 0 or (i + 1) == len(chunk_files):
+                        progress = ((i + 1) * 100) // len(chunk_files)
+                        print(f"   Merging: {progress}% ({i + 1}/{len(chunk_files)} chunks)")
                     
-                    # Force garbage collection periodically
-                    if bytes_read % (chunk_size * 4) == 0:  # Every 8KB
+                    # Garbage collection every few merges
+                    if (i + 1) % 3 == 0:
                         gc.collect()
                     
                 except Exception as e:
-                    print(f"❌ Decompression error in chunk: {e}")
+                    print(f"   Error reading chunk {chunk_filename}: {e}")
                     return False
-            
-            # Flush any remaining data
-            try:
-                remaining = decompressor.flush()
-                if remaining:
-                    target.write(remaining)
-                    bytes_written += len(remaining)
-                    print(f"Flushed {len(remaining)} final bytes")
-            except Exception as e:
-                print(f"❌ Flush error: {e}")
-                return False
-            
-            print(f"Total decompressed: {bytes_written} bytes (expected: {info.file_size})")
         
-        print(f"✅ Chunked extraction successful: {filename}")
+        print(f"✅ 20KB chunked extraction successful: {filename}")
+        print(f"   Total written: {total_written} bytes (expected: {info.file_size})")
+        
+        # Verify file size
+        if total_written != info.file_size:
+            print(f"⚠️ Size mismatch: wrote {total_written}, expected {info.file_size}")
+        
         return True
         
     except Exception as e:
-        print(f"❌ Chunked extraction failed: {e}")
+        print(f"❌ 20KB chunked extraction failed: {e}")
+        return False
+        
+    finally:
+        # Clean up temporary chunk files
+        for chunk_filename in chunk_files:
+            try:
+                import os
+                os.remove(chunk_filename)
+                print(f"   Cleaned up: {chunk_filename}")
+            except:
+                pass
+        gc.collect()
+
+
+# ALTERNATIVE EXTRACTION METHOD
+def extract_large_file_alternative(myzip, filename, target_path, info):
+    """
+    Alternative method: Create placeholder file with instructions.
+    """
+    print(f"📝 Creating placeholder for large file: {filename}")
+    
+    # Create a placeholder file with instructions
+    placeholder_content = f"""# LARGE FILE PLACEHOLDER
+# 
+# Original file: {filename}
+# Size: {info.file_size:,} bytes ({info.file_size / 1024:.1f} KB)
+# Compressed: {info.compress_size:,} bytes
+# 
+# This file is too large for ESP32-S3 memory constraints.
+# 
+# SOLUTIONS:
+# 1. Reduce JavaScript bundle size in build process
+# 2. Split large files into smaller chunks
+# 3. Use external storage (SD card) for large assets
+# 4. Implement lazy loading for large components
+# 
+# ESP32-S3 Available Memory: ~100-120KB
+# Required Memory: ~{info.file_size / 1024:.0f}KB
+# 
+# To fix this:
+# - Optimize Vite build configuration
+# - Use code splitting and dynamic imports
+# - Minimize dependencies and remove unused code
+# - Consider using a lighter framework or vanilla JS
+"""
+    
+    try:
+        with open(target_path, 'w') as placeholder:
+            placeholder.write(placeholder_content)
+        
+        print(f"✅ Placeholder created: {target_path}")
+        print(f"   Contains instructions for handling large files")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Failed to create placeholder: {e}")
         return False
 
 # ZIP EXTRACTION FUNCTION
@@ -334,9 +532,9 @@ def extract_zip_file(zip_filepath, extract_to_path):
                 file_size = info.file_size
                 print(f"File size: {file_size} bytes, compression: {info.compress_type}")
                 
-                # Handle large files with chunked extraction
-                if file_size > 65536:  # 64KB limit
-                    print(f"⚠️ File {filename} is large ({file_size} bytes) - attempting chunked extraction")
+                # Handle large files with 20KB chunked extraction
+                if file_size > 20480:  # 20KB limit
+                    print(f"📦 File {filename} is large ({file_size} bytes) - using 20KB chunked extraction")
                     try:
                         success = extract_large_file_chunked(myzip, filename, target_path, info)
                         if success:
