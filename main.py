@@ -456,7 +456,7 @@ async def worker_uart():
 async def main():
     await asyncio.gather(
         # worker_show_memory(),
-        worker_display(),
+        # worker_display(),
         worker_wifi_ap(),
         worker_wifi_station(),
         worker_rtc_sync_time(),
