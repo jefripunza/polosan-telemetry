@@ -697,9 +697,7 @@ def clear_directory(directory_path):
 app = Router()
 
 # serve folder public
-# IMPORTANT: More specific routes must come BEFORE general routes
-app.static("/uploader", "/uploader")  # Specific route first
-app.static("/", "/web")               # General route last
+app.static("/", "/web")
 
 # ------------------------------------------------ #
 # basic

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && bun run build-zip.js",
+    "build": "tsc -b && vite build && cp -r ./dist ./web && bun run build-zip.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },
