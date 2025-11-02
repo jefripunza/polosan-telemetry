@@ -63,6 +63,10 @@ class Router:
 
     # ============ PRIVATE: HTTP Handler Request ============
     async def _handle_request(self, method, path, body=None, query_params=None):
+        # Handle CORS preflight OPTIONS requests
+        if method == "OPTIONS":
+            return {"message": "CORS preflight", "status": 200}
+        
         # dynamic route
         for route_key, handler in self.routes.items():
             route_method, route_path = route_key.split(':', 1)
@@ -192,6 +196,9 @@ class Router:
                 f"HTTP/1.1 {status_code} {status_text}\r\n"
                 f"Content-Type: {content_type}\r\n"
                 f"Content-Length: {len(content)}\r\n"
+                "Access-Control-Allow-Origin: *\r\n"
+                "Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\n"
+                "Access-Control-Allow-Headers: Content-Type, Authorization\r\n"
                 "Connection: close\r\n\r\n"
             ).encode() + content
 

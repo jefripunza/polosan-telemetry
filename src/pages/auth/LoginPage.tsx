@@ -1,8 +1,29 @@
 import { useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import axios from 'axios';
+import { z } from 'zod';
 
 type WiFiMode = 'access-point' | 'station' | '';
+
+// Zod schema for IP address validation
+const ipAddressSchema = z.string().regex(
+  /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/,
+  'Format IP address tidak valid (contoh: 192.168.1.100)'
+);
+
+const loginSchema = z.object({
+  wifiMode: z.enum(['access-point', 'station']),
+  ipAddress: z.string().optional(),
+  password: z.string().min(1, 'Password tidak boleh kosong')
+}).refine((data) => {
+  if (data.wifiMode === 'station') {
+    return data.ipAddress && ipAddressSchema.safeParse(data.ipAddress).success;
+  }
+  return true;
+}, {
+  message: 'IP address diperlukan untuk WiFi Station',
+  path: ['ipAddress']
+});
 
 export default function LoginPage() {
   const { language } = useAppStore();
@@ -63,33 +84,66 @@ export default function LoginPage() {
     return '';
   };
 
-  const validateForm = () => {
-    if (!wifiMode) {
-      setError(language === 'id' ? 'Pilih metode WiFi terlebih dahulu' : 'Please select WiFi method first');
-      return false;
-    }
+  // Format IP address input with xxx.xxx.xxx.xxx pattern
+  const formatIpAddress = (value: string) => {
+    // Remove all non-numeric characters except dots
+    const cleaned = value.replace(/[^\d.]/g, '');
     
-    if (wifiMode === 'station' && !ipAddress.trim()) {
-      setError(language === 'id' ? 'Masukkan alamat IP untuk WiFi Station' : 'Please enter IP address for WiFi Station');
-      return false;
-    }
+    // Split by dots and limit each segment to 3 digits
+    const segments = cleaned.split('.');
+    const formattedSegments = segments.map((segment) => {
+      // Limit to 3 digits per segment
+      let limitedSegment = segment.slice(0, 3);
+      
+      // Ensure each segment doesn't exceed 255
+      const num = parseInt(limitedSegment);
+      if (!isNaN(num) && num > 255) {
+        limitedSegment = '255';
+      }
+      
+      return limitedSegment;
+    });
     
-    if (!password.trim()) {
-      setError(language === 'id' ? 'Masukkan password' : 'Please enter password');
-      return false;
-    }
+    // Limit to 4 segments
+    const limitedSegments = formattedSegments.slice(0, 4);
+    
+    return limitedSegments.join('.');
+  };
 
-    // Validate IP format for station mode
-    if (wifiMode === 'station') {
-      const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-      const cleanIp = ipAddress.replace(/^https?:\/\//, '');
-      if (!ipRegex.test(cleanIp)) {
-        setError(language === 'id' ? 'Format alamat IP tidak valid' : 'Invalid IP address format');
+  const validateForm = () => {
+    try {
+      const formData = {
+        wifiMode: wifiMode as 'access-point' | 'station',
+        ipAddress: wifiMode === 'station' ? ipAddress : undefined,
+        password: password
+      };
+
+      const result = loginSchema.safeParse(formData);
+      
+      if (!result.success) {
+        const firstError = result.error.issues[0];
+        if (language === 'id') {
+          setError(firstError.message);
+        } else {
+          // English error messages
+          if (firstError.path.includes('wifiMode')) {
+            setError('Please select WiFi method first');
+          } else if (firstError.path.includes('ipAddress')) {
+            setError('Please enter a valid IP address for WiFi Station');
+          } else if (firstError.path.includes('password')) {
+            setError('Password cannot be empty');
+          } else {
+            setError('Invalid input format');
+          }
+        }
         return false;
       }
-    }
 
-    return true;
+      return true;
+    } catch (error) {
+      setError(language === 'id' ? 'Terjadi kesalahan validasi' : 'Validation error occurred');
+      return false;
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -189,10 +243,14 @@ export default function LoginPage() {
                 <input
                   type="text"
                   value={ipAddress}
-                  onChange={(e) => setIpAddress(e.target.value)}
-                  placeholder={currentContent.ipAddressPlaceholder}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+                  onChange={(e) => {
+                    const formattedValue = formatIpAddress(e.target.value);
+                    setIpAddress(formattedValue);
+                  }}
+                  placeholder="192.168.1.100"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors font-mono"
                   required
+                  maxLength={15}
                 />
               </div>
             )}

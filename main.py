@@ -266,6 +266,12 @@ def middleware_use_token(query):
         return {"message": "Invalid token", "status": 401}
     return None
 
+@app.get("/api/auth/token-validate")
+async def auth_token_validate(body, query, params):
+    result = middleware_use_token(query)
+    if result: return result
+    return {"message": "Token valid", "status": 200}
+
 @app.delete("/api/auth/logout")
 async def auth_logout(body, query, params):
     result = middleware_use_token(query)
