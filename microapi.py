@@ -1,6 +1,7 @@
 import uasyncio as asyncio
 import json
 import os
+import gc  # Garbage collector untuk memory management
 
 class Router:
     def __init__(self):
@@ -236,6 +237,122 @@ class Router:
                 break
         return data
 
+    # ============ PRIVATE: Streaming Multipart Parser ============
+    async def _parse_multipart_streaming(self, reader, request_header, content_length, content_type):
+        """Parse multipart data dengan streaming untuk menghemat memory"""
+        try:
+            # Extract boundary
+            boundary = b"--" + content_type.split("boundary=")[1].encode('utf-8')
+            print(f"Streaming multipart - boundary: {boundary}")
+            
+            # Parse request line dari header
+            header_str = request_header.decode("utf-8", "ignore")
+            header_lines = header_str.split("\r\n")
+            request_line = header_lines[0]
+            parts = request_line.split(' ')
+            method = parts[0]
+            full_path = parts[1]
+            
+            # Parse query params
+            if '?' in full_path:
+                path, query_string = full_path.split('?', 1)
+                query_params = {}
+                for param in query_string.split('&'):
+                    if '=' in param:
+                        key, value = param.split('=', 1)
+                        query_params[key] = value
+            else:
+                path = full_path
+                query_params = {}
+            
+            body = {}
+            files = {}
+            
+            # Read dan process multipart secara streaming
+            bytes_read = 0
+            buffer = b""
+            current_part = None
+            current_file = None
+            
+            while bytes_read < content_length:
+                # Read chunk kecil untuk ESP32
+                chunk_size = min(1024, content_length - bytes_read)  # 1KB chunks untuk ESP32
+                chunk = await reader.read(chunk_size)
+                if not chunk:
+                    break
+                    
+                bytes_read += len(chunk)
+                buffer += chunk
+                
+                # Process buffer untuk mencari boundaries dan parts
+                while boundary in buffer:
+                    boundary_pos = buffer.find(boundary)
+                    
+                    if current_part is not None:
+                        # Finish current part
+                        part_data = buffer[:boundary_pos]
+                        if current_file:
+                            current_file.write(part_data.rstrip(b"\r\n"))
+                            current_file.close()
+                            current_file = None
+                        current_part = None
+                    
+                    # Move past boundary
+                    buffer = buffer[boundary_pos + len(boundary):]
+                    
+                    # Look for next part headers
+                    if b"\r\n\r\n" in buffer:
+                        headers_end = buffer.find(b"\r\n\r\n")
+                        headers_bytes = buffer[:headers_end]
+                        buffer = buffer[headers_end + 4:]
+                        
+                        if b"Content-Disposition" in headers_bytes:
+                            headers_str = headers_bytes.decode('utf-8', 'ignore')
+                            disposition_line = [h for h in headers_str.split("\r\n") if "Content-Disposition" in h][0]
+                            
+                            if b'filename=' in headers_bytes:
+                                # File upload
+                                name = disposition_line.split('name="')[1].split('"')[0]
+                                filename = disposition_line.split('filename="')[1].split('"')[0]
+                                filepath = f"tmp/{filename}"
+                                current_file = open(filepath, "wb")
+                                files[name] = {"filename": filename, "path": filepath}
+                                current_part = "file"
+                                print(f"Streaming file: {filepath}")
+                            else:
+                                # Form field - collect in memory (should be small)
+                                current_part = "field"
+                                current_field_name = disposition_line.split('name="')[1].split('"')[0]
+                                current_field_data = b""
+                
+                # Write remaining buffer to current file if we're in a file part
+                if current_file and current_part == "file":
+                    # Keep some buffer for boundary detection
+                    if len(buffer) > len(boundary) + 10:
+                        write_size = len(buffer) - len(boundary) - 10
+                        current_file.write(buffer[:write_size])
+                        buffer = buffer[write_size:]
+            
+            # Close any remaining file
+            if current_file:
+                current_file.close()
+            
+            # Force garbage collection setelah parsing selesai
+            gc.collect()
+            
+            return method, path, body, query_params, files
+            
+        except Exception as e:
+            print(f"Streaming multipart error: {e}")
+            # Cleanup on error
+            if current_file:
+                try:
+                    current_file.close()
+                except:
+                    pass
+            gc.collect()
+            return "GET", "/", None, {}, {}
+
     # ============ PRIVATE: Client Handler ============
     async def _handle_client(self, reader, writer):
         tmp_files = []
@@ -245,26 +362,37 @@ class Router:
             request_header = await self._read_headers(reader)
             header_str = request_header.decode("utf-8", "ignore")
 
-            # cari content-length
+            # cari content-length dan content-type
             print("B ...")
             content_length = 0
+            content_type = ""
             for line in header_str.split("\r\n"):
                 if line.lower().startswith("content-length:"):
                     content_length = int(line.split(":", 1)[1].strip())
+                elif line.lower().startswith("content-type:"):
+                    content_type = line.split(":", 1)[1].strip()
 
-            # baca body sesuai content-length
             print("C ...")
-            body_bytes = b""
-            while len(body_bytes) < content_length:
-                chunk = await reader.read(content_length - len(body_bytes))
-                if not chunk:
-                    break
-                body_bytes += chunk
+            # Jika multipart/form-data dan file besar, gunakan streaming
+            if "multipart/form-data" in content_type and content_length > 16384:  # 16KB threshold untuk ESP32
+                method, path, body, query_params, files = await self._parse_multipart_streaming(
+                    reader, request_header, content_length, content_type
+                )
+                tmp_files = [info["path"] for info in files.values()]
+            else:
+                # Untuk request kecil, gunakan method lama
+                body_bytes = b""
+                while len(body_bytes) < content_length:
+                    chunk_size = min(4096, content_length - len(body_bytes))  # Read in 4KB chunks
+                    chunk = await reader.read(chunk_size)
+                    if not chunk:
+                        break
+                    body_bytes += chunk
 
-            print("D ...")
-            request = request_header + body_bytes
-            method, path, body, query_params, files = self._parse_http_request(request)
-            tmp_files = [info["path"] for info in files.values()]
+                print("D ...")
+                request = request_header + body_bytes
+                method, path, body, query_params, files = self._parse_http_request(request)
+                tmp_files = [info["path"] for info in files.values()]
 
             result = await self._handle_request(method, path, body, query_params, files)
 
@@ -301,12 +429,17 @@ class Router:
         except Exception as e:
             print("handle_client Error:", e)
         finally:
+            # Cleanup temporary files
             for filepath in tmp_files:
                 try:
                     os.remove(filepath)
                     print(f"hapus tmp: {filepath}")
                 except OSError:
                     pass
+            
+            # Force garbage collection untuk free memory
+            gc.collect()
+            print("Memory cleanup completed")
 
     # ============ PRIVATE: Utils ============
     def _guess_content_type(self, filename: str) -> str:
