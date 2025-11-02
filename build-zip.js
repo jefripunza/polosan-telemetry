@@ -39,12 +39,12 @@ async function createZip() {
   const output = fs.createWriteStream(zipPath);
   const archive = archiver('zip', {
     zlib: { 
-      level: 9,           // Maximum compression level
-      chunkSize: 1024,    // Smaller chunks for better compression
-      windowBits: 15,     // Maximum window size
-      memLevel: 8         // Maximum memory usage for better compression
+      // level: 9,           // Maximum compression level
+      // chunkSize: 1024,    // Smaller chunks for better compression
+      // windowBits: 15,     // Maximum window size
+      // memLevel: 8         // Maximum memory usage for better compression
     },
-    store: false          // Always compress, never just store
+    // store: false          // Always compress, never just store
   });
 
   // Calculate original size
