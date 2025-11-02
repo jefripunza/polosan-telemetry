@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
+import { useNavigate } from 'react-router';
 import axios from 'axios';
 import { z } from 'zod';
 
@@ -26,7 +27,8 @@ const loginSchema = z.object({
 });
 
 export default function LoginPage() {
-  const { language } = useAppStore();
+  const { language, setToken, setIpAddress: setStoreIpAddress, getHostUrl: getStoreHostUrl } = useAppStore();
+  const navigate = useNavigate();
   const [wifiMode, setWifiMode] = useState<WiFiMode>('');
   const [ipAddress, setIpAddress] = useState('');
   const [password, setPassword] = useState('');
@@ -73,16 +75,6 @@ export default function LoginPage() {
 
   const currentContent = content[language];
 
-  const getHostUrl = () => {
-    if (wifiMode === 'access-point') {
-      return 'http://192.168.4.1';
-    } else if (wifiMode === 'station' && ipAddress) {
-      // Add http:// if not present
-      const cleanIp = ipAddress.replace(/^https?:\/\//, '');
-      return `http://${cleanIp}`;
-    }
-    return '';
-  };
 
   // Format IP address input with xxx.xxx.xxx.xxx pattern
   const formatIpAddress = (value: string) => {
@@ -156,7 +148,11 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      const hostUrl = getHostUrl();
+      // Save IP address and WiFi mode to store first
+      setStoreIpAddress(ipAddress, wifiMode as 'access-point' | 'station');
+      
+      // Get host URL from store
+      const hostUrl = getStoreHostUrl();
       const response = await axios.post(`${hostUrl}/api/auth/login`, {
         password: password
       }, {
@@ -166,9 +162,16 @@ export default function LoginPage() {
         }
       });
 
-      if (response.status === 200) {
+      if (response.status === 200 && response.data.token) {
+        // Save token to Zustand store
+        setToken(response.data.token);
         setSuccess(language === 'id' ? 'Login berhasil!' : 'Login successful!');
-        // Here you can redirect or handle successful login
+        
+        // Navigate to dashboard after short delay
+        setTimeout(() => {
+          navigate('/app/dashboard', { replace: true });
+        }, 1000);
+        
         console.log('Login successful:', response.data);
       }
     } catch (err: any) {

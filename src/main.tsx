@@ -5,6 +5,7 @@ import { RouterProvider } from "react-router/dom";
 
 // Layouts
 import AuthLayout from "@/layouts/AuthLayout";
+import AppLayout from "@/layouts/AppLayout";
 
 // Pages
 import LandingPage from "@/pages/LandingPage";
@@ -44,7 +45,7 @@ const router = createBrowserRouter([
   // App
   {
     path: "/app",
-    Component: AuthLayout,
+    Component: AppLayout,
     children: [
       {
         path: "dashboard",
