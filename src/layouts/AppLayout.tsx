@@ -159,9 +159,9 @@ export default function AppLayout() {
               {menuItems.map((item) => (
                 <li key={item.path}>
                   <Link
-                    to={item.path}
+                    to={`/app/${item.path}`}
                     className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors duration-200 ${
-                      location.pathname === item.path
+                      location.pathname === `/app/${item.path}`
                         ? "bg-emerald-50 text-emerald-700 border-r-2 border-emerald-600"
                         : "text-gray-700 hover:bg-gray-50 hover:text-emerald-600"
                     }`}
@@ -211,7 +211,7 @@ export default function AppLayout() {
 
               {/* Page Title */}
               <h1 className="text-xl font-semibold text-gray-900 lg:ml-0">
-                {menuItems.find((item) => item.path === location.pathname)
+                {menuItems.find((item) => `/app/${item.path}` === location.pathname)
                   ?.name || "Dashboard"}
               </h1>
 
