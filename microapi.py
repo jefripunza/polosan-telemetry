@@ -1,7 +1,6 @@
 import uasyncio as asyncio
 import json
 import os
-import gc  # Garbage collector untuk memory management
 
 class Router:
     def __init__(self):
@@ -337,9 +336,6 @@ class Router:
             if current_file:
                 current_file.close()
             
-            # Force garbage collection setelah parsing selesai
-            gc.collect()
-            
             return method, path, body, query_params, files
             
         except Exception as e:
@@ -350,7 +346,6 @@ class Router:
                     current_file.close()
                 except:
                     pass
-            gc.collect()
             return "GET", "/", None, {}, {}
 
     # ============ PRIVATE: Client Handler ============
@@ -358,12 +353,10 @@ class Router:
         tmp_files = []
         try:
             # baca header manual
-            print("A ...")
             request_header = await self._read_headers(reader)
             header_str = request_header.decode("utf-8", "ignore")
 
             # cari content-length dan content-type
-            print("B ...")
             content_length = 0
             content_type = ""
             for line in header_str.split("\r\n"):
@@ -372,7 +365,6 @@ class Router:
                 elif line.lower().startswith("content-type:"):
                     content_type = line.split(":", 1)[1].strip()
 
-            print("C ...")
             # Jika multipart/form-data dan file besar, gunakan streaming
             if "multipart/form-data" in content_type and content_length > 16384:  # 16KB threshold untuk ESP32
                 method, path, body, query_params, files = await self._parse_multipart_streaming(
@@ -389,7 +381,6 @@ class Router:
                         break
                     body_bytes += chunk
 
-                print("D ...")
                 request = request_header + body_bytes
                 method, path, body, query_params, files = self._parse_http_request(request)
                 tmp_files = [info["path"] for info in files.values()]
@@ -436,10 +427,6 @@ class Router:
                     print(f"hapus tmp: {filepath}")
                 except OSError:
                     pass
-            
-            # Force garbage collection untuk free memory
-            gc.collect()
-            print("Memory cleanup completed")
 
     # ============ PRIVATE: Utils ============
     def _guess_content_type(self, filename: str) -> str:

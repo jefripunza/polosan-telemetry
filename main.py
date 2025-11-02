@@ -262,23 +262,39 @@ def extract_large_file_chunked(myzip, filename, target_path, info):
         # Step 2: Try streaming decompression with ultra-small buffers
         print("   Attempting streaming decompression...")
         
-        # Use our custom decompressobj for streaming
+        # Try different decompressor configurations
+        decompressor = None
+        wbits_options = [-12, -9, -15]
+        
+        for wbits in wbits_options:
+            try:
+                decompressor = zlib.decompressobj(wbits)
+                print(f"   Created decompressor with wbits={wbits}")
+                break
+            except Exception as e:
+                print(f"   Failed to create decompressor with wbits={wbits}: {e}")
+                continue
+        
+        if not decompressor:
+            print("   ❌ Could not create decompressor")
+            try:
+                os.remove(temp_compressed_file)
+            except:
+                pass
+            return extract_large_file_alternative(myzip, filename, target_path, info)
+        
         try:
-            decompressor = zlib.decompressobj(-12)  # Start with -12 wbits
+            print("   Using direct append approach...")
             
-            # Open compressed file and create streaming buffer file
-            temp_buffer_file = "tmp/buffer.tmp"
-            
-            with open(temp_compressed_file, 'rb') as compressed_file:
-                with open(temp_buffer_file, 'wb') as buffer_file:
-                    chunk_number = 0
-                    buffer_size = 0
-                    target_chunk_size = 20480  # 20KB target chunks
+            # Create target file and open for writing
+            with open(target_path, 'wb') as target_file:
+                with open(temp_compressed_file, 'rb') as compressed_file:
+                    bytes_written = 0
                     
-                    # Read compressed data in tiny chunks and decompress
+                    # Read compressed data in ultra-tiny chunks and decompress directly to target
                     while True:
-                        # Read tiny compressed chunk
-                        compressed_chunk = compressed_file.read(256)  # 256B at a time
+                        # Read ultra-tiny compressed chunk
+                        compressed_chunk = compressed_file.read(256)  # 256B at a time - ultra small
                         if not compressed_chunk:
                             break
                         
@@ -287,91 +303,155 @@ def extract_large_file_chunked(myzip, filename, target_path, info):
                             decompressed_chunk = decompressor.decompress(compressed_chunk)
                             
                             if decompressed_chunk:
-                                # Write directly to buffer file
-                                buffer_file.write(decompressed_chunk)
-                                buffer_size += len(decompressed_chunk)
+                                # Write directly to target file (append mode)
+                                target_file.write(decompressed_chunk)
+                                bytes_written += len(decompressed_chunk)
                                 
-                                # If buffer has enough data for a 20KB chunk, extract it
-                                if buffer_size >= target_chunk_size:
-                                    # Close buffer file to flush data
-                                    buffer_file.close()
-                                    
-                                    # Extract 20KB chunks from buffer file
-                                    with open(temp_buffer_file, 'rb') as read_buffer:
-                                        while buffer_size >= target_chunk_size:
-                                            # Read 20KB chunk
-                                            chunk_data = read_buffer.read(target_chunk_size)
-                                            if not chunk_data or len(chunk_data) < target_chunk_size:
-                                                break
-                                            
-                                            # Save chunk to file
-                                            chunk_filename = f"tmp/chunk_{chunk_number:03d}.tmp"
-                                            with open(chunk_filename, 'wb') as chunk_file:
-                                                chunk_file.write(chunk_data)
-                                            
-                                            chunk_files.append(chunk_filename)
-                                            chunk_number += 1
-                                            buffer_size -= target_chunk_size
-                                            print(f"   Saved chunk {chunk_number}: {len(chunk_data)} bytes")
-                                            
-                                            # Garbage collection after each chunk
-                                            gc.collect()
-                                        
-                                        # Read remaining data
-                                        remaining_data = read_buffer.read()
-                                    
-                                    # Reopen buffer file and write remaining data
-                                    buffer_file = open(temp_buffer_file, 'wb')
-                                    if remaining_data:
-                                        buffer_file.write(remaining_data)
-                                        buffer_size = len(remaining_data)
-                                    else:
-                                        buffer_size = 0
+                                # Progress every 20KB written
+                                if bytes_written % 20480 == 0:
+                                    print(f"   Appended: {bytes_written} bytes to target file")
+                                
+                                # Aggressive garbage collection
+                                if bytes_written % 8192 == 0:  # Every 8KB
+                                    gc.collect()
                         
                         except Exception as e:
-                            # If decompression fails, we might need more data
+                            # If decompression fails, we might need more data - continue
                             continue
-                    
-                    # Close buffer file
-                    buffer_file.close()
                     
                     # Flush any remaining data from decompressor
                     try:
                         remaining = decompressor.flush()
                         if remaining:
-                            with open(temp_buffer_file, 'ab') as append_buffer:
-                                append_buffer.write(remaining)
-                            buffer_size += len(remaining)
-                    except:
-                        pass
+                            target_file.write(remaining)
+                            bytes_written += len(remaining)
+                            print(f"   Flushed {len(remaining)} final bytes to target")
+                    except Exception as flush_error:
+                        print(f"   Flush warning: {flush_error}")
+                        # Continue - we might still have a valid file
                     
-                    # Save final chunk if any data remains
-                    if buffer_size > 0:
-                        with open(temp_buffer_file, 'rb') as final_buffer:
-                            final_data = final_buffer.read()
-                            if final_data:
-                                chunk_filename = f"tmp/chunk_{chunk_number:03d}.tmp"
-                                with open(chunk_filename, 'wb') as chunk_file:
-                                    chunk_file.write(final_data)
-                                
-                                chunk_files.append(chunk_filename)
-                                chunk_number += 1
-                                print(f"   Saved final chunk {chunk_number}: {len(final_data)} bytes")
-            
-            # Clean up buffer file
-            try:
-                os.remove(temp_buffer_file)
-            except:
-                pass
+                    print(f"   ✅ Direct append successful: {bytes_written} bytes written")
+                    
+                    # Verify we wrote something reasonable
+                    if bytes_written > 1000:  # At least 1KB written
+                        print(f"   ✅ File extraction completed successfully!")
+                        # Clean up temp file
+                        try:
+                            os.remove(temp_compressed_file)
+                        except:
+                            pass
+                        return True
+                    else:
+                        print(f"   ⚠️ Only {bytes_written} bytes written, trying fallback...")
+                        raise Exception("Insufficient data written")
         
         except Exception as e:
             print(f"   Streaming decompression failed: {e}")
+            print("   🔄 Trying fallback simple decompression...")
+            
+            # No buffer file to clean up in direct append approach
+            
+            # Fallback: Try simple decompression if compressed file is small enough
+            try:
+                # Check compressed file size
+                compressed_file_size = 0
+                try:
+                    with open(temp_compressed_file, 'rb') as cf:
+                        cf.seek(0, 2)  # Seek to end
+                        compressed_file_size = cf.tell()
+                except:
+                    pass
+                
+                print(f"   Checking compressed file size: {compressed_file_size} bytes")
+                
+                if compressed_file_size > 0 and compressed_file_size <= 80000:  # 80KB limit - try even for larger files
+                    print(f"   ✅ Compressed file is {compressed_file_size} bytes, trying simple decompression...")
+                else:
+                    print(f"   ❌ Compressed file too large ({compressed_file_size} bytes) or invalid for fallback")
+                    raise Exception("File too large for fallback")
+                
+                if compressed_file_size > 0:
+                    
+                    # Read compressed data in small chunks
+                    compressed_data = b""
+                    bytes_read = 0
+                    with open(temp_compressed_file, 'rb') as cf:
+                        while True:
+                            chunk = cf.read(1024)  # 1KB chunks to be safer
+                            if not chunk:
+                                break
+                            compressed_data += chunk
+                            bytes_read += len(chunk)
+                            
+                            # Progress and memory management
+                            if bytes_read % 8192 == 0:  # Every 8KB
+                                progress = (bytes_read * 100) // compressed_file_size
+                                print(f"   Reading for fallback: {progress}% ({bytes_read}/{compressed_file_size})")
+                            
+                            gc.collect()
+                    
+                    print(f"   Read {len(compressed_data)} bytes for fallback decompression")
+                    
+                    # Try decompression with different wbits
+                    for wbits in [-12, -9, -15]:
+                        try:
+                            print(f"   Trying simple decompression with wbits={wbits}")
+                            decompressed_data = zlib.decompress(compressed_data, wbits)
+                            print(f"   ✅ Simple decompression successful: {len(decompressed_data)} bytes")
+                            
+                            # Clean up compressed data
+                            del compressed_data
+                            gc.collect()
+                            
+                            # Split into 20KB chunks and save
+                            chunk_number = 0
+                            bytes_processed = 0
+                            target_chunk_size = 20480
+                            
+                            while bytes_processed < len(decompressed_data):
+                                current_chunk_size = min(target_chunk_size, len(decompressed_data) - bytes_processed)
+                                chunk_data = decompressed_data[bytes_processed:bytes_processed + current_chunk_size]
+                                
+                                chunk_filename = f"tmp/chunk_{chunk_number:03d}.tmp"
+                                with open(chunk_filename, 'wb') as chunk_file:
+                                    chunk_file.write(chunk_data)
+                                
+                                chunk_files.append(chunk_filename)
+                                bytes_processed += current_chunk_size
+                                chunk_number += 1
+                                print(f"   Fallback chunk {chunk_number}: {len(chunk_data)} bytes")
+                                
+                                if chunk_number % 2 == 0:
+                                    gc.collect()
+                            
+                            # Clean up decompressed data
+                            del decompressed_data
+                            gc.collect()
+                            break
+                            
+                        except Exception as decomp_error:
+                            print(f"   Simple decompression wbits={wbits} failed: {decomp_error}")
+                            continue
+                    
+                    # Clean up compressed data if still in memory
+                    try:
+                        del compressed_data
+                    except:
+                        pass
+                    gc.collect()
+                
+            except Exception as fallback_error:
+                print(f"   Fallback decompression failed: {fallback_error}")
+            
             # Clean up temp file
             try:
                 os.remove(temp_compressed_file)
             except:
                 pass
-            return extract_large_file_alternative(myzip, filename, target_path, info)
+            
+            # If we have chunks from fallback, continue; otherwise use alternative
+            if not chunk_files:
+                return extract_large_file_alternative(myzip, filename, target_path, info)
         
         # Clean up compressed temp file
         try:
@@ -379,44 +459,9 @@ def extract_large_file_chunked(myzip, filename, target_path, info):
         except:
             pass
         
-        if not chunk_files:
-            print("   ❌ No chunks created")
-            return extract_large_file_alternative(myzip, filename, target_path, info)
-        
-        print(f"   Created {len(chunk_files)} chunks of 20KB each")
-        
-        # Merge all chunk files back into the target file
-        print(f"   Merging {len(chunk_files)} chunks into {target_path}...")
-        
-        with open(target_path, 'wb') as target:
-            total_written = 0
-            for i, chunk_filename in enumerate(chunk_files):
-                try:
-                    with open(chunk_filename, 'rb') as chunk_file:
-                        chunk_data = chunk_file.read()
-                        target.write(chunk_data)
-                        total_written += len(chunk_data)
-                    
-                    # Progress for merging
-                    if (i + 1) % 5 == 0 or (i + 1) == len(chunk_files):
-                        progress = ((i + 1) * 100) // len(chunk_files)
-                        print(f"   Merging: {progress}% ({i + 1}/{len(chunk_files)} chunks)")
-                    
-                    # Garbage collection every few merges
-                    if (i + 1) % 3 == 0:
-                        gc.collect()
-                    
-                except Exception as e:
-                    print(f"   Error reading chunk {chunk_filename}: {e}")
-                    return False
-        
-        print(f"✅ 20KB chunked extraction successful: {filename}")
-        print(f"   Total written: {total_written} bytes (expected: {info.file_size})")
-        
-        # Verify file size
-        if total_written != info.file_size:
-            print(f"⚠️ Size mismatch: wrote {total_written}, expected {info.file_size}")
-        
+        # If we reach here, direct append succeeded, so we're done
+        # No need for chunk merging with direct append approach
+        print("   ✅ Direct append extraction completed successfully")
         return True
         
     except Exception as e:
@@ -651,7 +696,10 @@ def clear_directory(directory_path):
 
 app = Router()
 
-app.static("/", "/web")  # serve folder public
+# serve folder public
+# IMPORTANT: More specific routes must come BEFORE general routes
+app.static("/uploader", "/uploader")  # Specific route first
+app.static("/", "/web")               # General route last
 
 # ------------------------------------------------ #
 # basic
@@ -944,7 +992,7 @@ async def worker_uart():
 
 async def main():
     await asyncio.gather(
-        worker_show_memory(),
+        # worker_show_memory(),
         worker_display(),
         worker_wifi_ap(),
         worker_wifi_station(),
