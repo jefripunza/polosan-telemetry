@@ -43,6 +43,99 @@ def decompress(data, wbits=_MAX_WBITS):
         return g.read()
 
 
+class _DecompressObj:
+    """Streaming decompressor object for MicroPython ESP32 compatibility.
+    
+    This is a simplified implementation that accumulates data and 
+    decompresses when enough data is available.
+    """
+    
+    def __init__(self, wbits=_MAX_WBITS):
+        self.wbits = wbits
+        self._buffer = b""
+        self._finished = False
+        self._decode_args = _decode_wbits(wbits, True)
+        self._output_buffer = b""
+    
+    def decompress(self, data):
+        """Decompress a chunk of data.
+        
+        Args:
+            data: bytes to decompress
+            
+        Returns:
+            decompressed bytes (may be empty if more data needed)
+        """
+        if self._finished:
+            return b""
+        
+        if not data:
+            return b""
+        
+        # Add new data to buffer
+        self._buffer += data
+        
+        # For streaming, we'll try to decompress in larger chunks
+        # to avoid the overhead of creating many DeflateIO objects
+        if len(self._buffer) < 4096:  # Wait for at least 4KB
+            return b""
+        
+        # Try to decompress accumulated data
+        try:
+            input_stream = io.BytesIO(self._buffer)
+            with deflate.DeflateIO(input_stream, *self._decode_args) as decompressor:
+                # Read a reasonable chunk
+                chunk = decompressor.read(16384)  # 16KB chunks
+                if chunk:
+                    # Clear the buffer since we processed it
+                    self._buffer = b""
+                    return chunk
+                else:
+                    return b""
+        except Exception:
+            # If decompression fails, it might be incomplete data
+            # Keep accumulating until we have more
+            return b""
+    
+    def flush(self):
+        """Flush any remaining decompressed data.
+        
+        Returns:
+            any remaining decompressed bytes
+        """
+        if self._finished:
+            return b""
+        
+        if not self._buffer:
+            self._finished = True
+            return b""
+        
+        try:
+            # Final decompression of remaining data
+            input_stream = io.BytesIO(self._buffer)
+            with deflate.DeflateIO(input_stream, *self._decode_args) as decompressor:
+                result = decompressor.read()
+                self._buffer = b""
+                self._finished = True
+                return result if result else b""
+        except Exception as e:
+            print(f"Flush error: {e}")
+            self._finished = True
+            return b""
+
+
+def decompressobj(wbits=_MAX_WBITS):
+    """Create a decompressor object for streaming decompression.
+    
+    Args:
+        wbits: window size parameter (same as decompress())
+        
+    Returns:
+        _DecompressObj instance for streaming decompression
+    """
+    return _DecompressObj(wbits)
+
+
 def crc32(data, crc=0):
     """Calculate CRC32 checksum of data.
     

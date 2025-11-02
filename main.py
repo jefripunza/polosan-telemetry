@@ -225,7 +225,10 @@ def extract_large_file_chunked(myzip, filename, target_path, info):
         # Open target file for writing
         with open(target_path, 'wb') as target:
             bytes_read = 0
-            chunk_size = 4096  # 4KB chunks
+            bytes_written = 0
+            chunk_size = 2048  # Smaller 2KB chunks for ESP32
+            
+            print(f"Processing {info.compress_size} compressed bytes...")
             
             while bytes_read < info.compress_size:
                 # Read compressed chunk
@@ -233,32 +236,43 @@ def extract_large_file_chunked(myzip, filename, target_path, info):
                 compressed_chunk = myzip.fp.read(read_size)
                 
                 if not compressed_chunk:
+                    print(f"No more data at {bytes_read}/{info.compress_size}")
                     break
                 
                 bytes_read += len(compressed_chunk)
                 
                 # Decompress chunk
                 try:
-                    if bytes_read >= info.compress_size:
-                        # Last chunk - finalize decompression
-                        decompressed_chunk = decompressor.decompress(compressed_chunk)
-                        remaining = decompressor.flush()
-                        if decompressed_chunk:
-                            target.write(decompressed_chunk)
-                        if remaining:
-                            target.write(remaining)
-                    else:
-                        # Regular chunk
-                        decompressed_chunk = decompressor.decompress(compressed_chunk)
-                        if decompressed_chunk:
-                            target.write(decompressed_chunk)
+                    decompressed_chunk = decompressor.decompress(compressed_chunk)
+                    if decompressed_chunk:
+                        target.write(decompressed_chunk)
+                        bytes_written += len(decompressed_chunk)
                     
-                    # Force garbage collection after each chunk
-                    gc.collect()
+                    # Progress logging
+                    if bytes_read % (chunk_size * 8) == 0:  # Every 16KB
+                        progress = (bytes_read * 100) // info.compress_size
+                        print(f"Progress: {progress}% ({bytes_read}/{info.compress_size}, written: {bytes_written})")
+                    
+                    # Force garbage collection periodically
+                    if bytes_read % (chunk_size * 4) == 0:  # Every 8KB
+                        gc.collect()
                     
                 except Exception as e:
                     print(f"❌ Decompression error in chunk: {e}")
                     return False
+            
+            # Flush any remaining data
+            try:
+                remaining = decompressor.flush()
+                if remaining:
+                    target.write(remaining)
+                    bytes_written += len(remaining)
+                    print(f"Flushed {len(remaining)} final bytes")
+            except Exception as e:
+                print(f"❌ Flush error: {e}")
+                return False
+            
+            print(f"Total decompressed: {bytes_written} bytes (expected: {info.file_size})")
         
         print(f"✅ Chunked extraction successful: {filename}")
         return True
