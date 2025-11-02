@@ -1,6 +1,7 @@
 ## ============================================== ##
 # Standard Library
 import os
+import json
 from machine import Pin, I2C, SPI
 import uasyncio as asyncio
 
@@ -62,6 +63,14 @@ db_json = DataJSON("db.json", {
     "module:adc": {}, # Analog-to-Digital Converter (ADC): A1, A2, A3
 })
 db = db_json.read()
+
+# create session.json file if not exist
+try:
+    os.stat("session.json")
+except OSError:
+    with open("session.json", "w") as f:
+        f.write(json.dumps([]))
+
 
 ## ============================================== ##
 # Setup Pin (khurslabs)
@@ -156,16 +165,18 @@ def display_render(row, col_start, text):
     lcd.putstr(text)
 
 # WiFi Station
+station = None
 def wifi_sta_connect(ssid, password):
     global wifi_sta_is_online, wifi_sta_ssid_connected, wifi_sta_ip_address
-    sta = Station(ssid=ssid, password=password)
-    if sta:
+    global station
+    station = Station(ssid=ssid, password=password)
+    if station:
         print("Berhasil koneksi ke Wi-Fi:", ssid)
         wifi_sta_is_online = True
         wifi_sta_ssid_connected = ssid
-        wifi_sta_ip_address = sta.get_ip()
+        wifi_sta_ip_address = station.get_ip()
         print("Station IP:", wifi_sta_ip_address)
-    return sta
+    return station
 
 # Log
 last_date = ""
@@ -187,6 +198,33 @@ def read_log(filename):
     except Exception as e:
         print("Error during SD-card read:", e)
 
+# Session
+def set_session(session_string):
+    # Read existing sessions
+    try:
+        with open("session.json", "r") as f:
+            sessions = json.load(f)
+    except:
+        sessions = []
+    # Append new session if not already exists
+    if session_string not in sessions:
+        sessions.append(session_string)
+        with open("session.json", "w") as f:
+            json.dump(sessions, f)
+def get_session(session_string):
+    try:
+        with open("session.json", "r") as f:
+            sessions = json.load(f)
+            return session_string in sessions
+    except Exception as e:
+        print("Error during session read:", e)
+        return False
+
+def random_string(length):
+    import urandom
+    chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    return "".join(chars[urandom.getrandbits(6) % len(chars)] for _ in range(length))
+
 ## ============================================== ##
 # Setup Router
 
@@ -195,8 +233,63 @@ app = Router()
 # ------------------------------------------------ #
 # basic
 
-@app.get("/api/ssid-scan")
-async def ssid_scan(body, query_params, path_params=None):
+@app.get("/")
+async def root(body, query, params):
+    return {"message": "OK"}
+
+# ------------------------------------------------ #
+# auth
+
+@app.post("/api/auth/login")
+async def auth_login(body, query, params):
+    if not body or not body.get("password"):
+        return {"message": "Password required", "status": 400}
+    
+    web_password = db.get("web:password")
+    if body.get("password") == web_password:
+        # Generate random token 13 characters
+        token = random_string(13)
+        
+        # Save token to session
+        set_session(token)
+        
+        return {
+            "message": "Login successful",
+            "token": token,
+            "status": 200
+        }
+    
+    return {"message": "Invalid password", "status": 401}
+
+@app.delete("/api/auth/logout")
+async def auth_logout(body, query, params):
+    token = query.get("token")
+    if not token:
+        return {"message": "Token required", "status": 400}
+    
+    if get_session(token):
+        # Remove token from session
+        try:
+            with open("session.json", "r") as f:
+                sessions = json.load(f)
+            
+            if token in sessions:
+                sessions.remove(token)
+                with open("session.json", "w") as f:
+                    json.dump(sessions, f)
+                
+                return {"message": "Logout successful", "status": 200}
+        except Exception as e:
+            print("Error during logout:", e)
+    
+    return {"message": "Invalid token", "status": 401}
+
+# ------------------------------------------------ #
+# wifi
+
+@app.get("/api/wifi/scan")
+async def wifi_scan(body, query, params):
+    global station
     nets = station.scan()
     result = []
     for ssid, bssid, channel, RSSI, authmode, hidden in nets:
@@ -209,9 +302,6 @@ async def ssid_scan(body, query_params, path_params=None):
             "hidden": hidden,
         })
     return {"data": result}
-
-# ------------------------------------------------ #
-# auth
 
 # ------------------------------------------------ #
 
