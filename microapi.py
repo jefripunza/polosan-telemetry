@@ -109,13 +109,27 @@ class Router:
                 file_path = f"{folder}/{rel_path}".lstrip("/")
 
                 try:
-                    with open(file_path, "rb") as f:
-                        content = f.read()
-                    return {
-                        "content": content,
-                        "status": 200,
-                        "content_type": self._guess_content_type(file_path),
-                    }
+                    # Check file size first
+                    import os
+                    file_size = os.stat(file_path)[6]  # Get file size
+                    
+                    # For small files (< 16KB), read normally
+                    if file_size < 16384:  # 16KB threshold
+                        with open(file_path, "rb") as f:
+                            content = f.read()
+                        return {
+                            "content": content,
+                            "status": 200,
+                            "content_type": self._guess_content_type(file_path),
+                        }
+                    else:
+                        # For large files, use streaming
+                        return {
+                            "stream_file": file_path,
+                            "file_size": file_size,
+                            "status": 200,
+                            "content_type": self._guess_content_type(file_path),
+                        }
                 except OSError:
                     return {"error": "Not Found 1", "status": 404}
 
@@ -348,6 +362,64 @@ class Router:
                     pass
             return "GET", "/", None, {}, {}
 
+    # ============ PRIVATE: File Streaming ============
+    async def _stream_file_response(self, writer, result):
+        """Stream large files in chunks to prevent memory allocation errors"""
+        file_path = result["stream_file"]
+        file_size = result["file_size"]
+        status_code = result.get("status", 200)
+        content_type = result.get("content_type", "application/octet-stream")
+        
+        status_text = "OK" if status_code == 200 else "Internal Server Error"
+        
+        try:
+            # Send HTTP headers first
+            headers = (
+                f"HTTP/1.1 {status_code} {status_text}\r\n"
+                f"Content-Type: {content_type}\r\n"
+                f"Content-Length: {file_size}\r\n"
+                "Connection: close\r\n\r\n"
+            ).encode()
+            
+            await writer.awrite(headers)
+            
+            # Stream file content in small chunks
+            chunk_size = 4096  # 4KB chunks for ESP32
+            bytes_sent = 0
+            
+            with open(file_path, "rb") as f:
+                while bytes_sent < file_size:
+                    # Read small chunk
+                    remaining = file_size - bytes_sent
+                    current_chunk_size = min(chunk_size, remaining)
+                    chunk = f.read(current_chunk_size)
+                    
+                    if not chunk:
+                        break
+                    
+                    # Send chunk
+                    await writer.awrite(chunk)
+                    bytes_sent += len(chunk)
+                    
+                    # Progress logging for large files
+                    if file_size > 50000 and bytes_sent % 20480 == 0:  # Log every 20KB for files > 50KB
+                        progress = (bytes_sent * 100) // file_size
+                        print(f"Streaming {file_path}: {progress}% ({bytes_sent}/{file_size})")
+                    
+                    # Small delay to prevent overwhelming the ESP32
+                    if bytes_sent % 8192 == 0:  # Every 8KB
+                        await asyncio.sleep(0.01)  # 10ms delay
+            
+            print(f"✅ Streamed {file_path}: {bytes_sent} bytes")
+            await writer.aclose()
+            
+        except Exception as e:
+            print(f"❌ Streaming error for {file_path}: {e}")
+            try:
+                await writer.aclose()
+            except:
+                pass
+
     # ============ PRIVATE: Client Handler ============
     async def _handle_client(self, reader, writer):
         tmp_files = []
@@ -386,6 +458,11 @@ class Router:
                 tmp_files = [info["path"] for info in files.values()]
 
             result = await self._handle_request(method, path, body, query_params, files)
+
+            # Handle streaming files
+            if isinstance(result, dict) and "stream_file" in result:
+                await self._stream_file_response(writer, result)
+                return
 
             if isinstance(result, dict) and "content" in result:
                 content = result["content"]
