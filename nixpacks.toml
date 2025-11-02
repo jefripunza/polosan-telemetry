@@ -1,0 +1,21 @@
+[phases.setup]
+nixPkgs = ["bun", "gcc", "binutils"]
+
+[phases.install]
+cmds = [
+  "rm -f package-lock.json",
+  "bun install"
+]
+
+[phases.build]
+cmds = [
+  "export ROLLUP_SKIP_NODE_RESOLVE=true",
+  "bun run build"
+]
+
+[start]
+cmd = "bun run preview"
+
+[variables]
+NODE_ENV = "production"
+ROLLUP_SKIP_NODE_RESOLVE = "true"

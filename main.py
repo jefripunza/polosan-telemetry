@@ -261,34 +261,43 @@ async def auth_login(body, query, params):
     
     return {"message": "Invalid password", "status": 401}
 
-@app.delete("/api/auth/logout")
-async def auth_logout(body, query, params):
+def middleware_use_token(query):
     token = query.get("token")
     if not token:
         return {"message": "Token required", "status": 400}
-    
-    if get_session(token):
-        # Remove token from session
-        try:
-            with open("session.json", "r") as f:
-                sessions = json.load(f)
+    if not get_session(token):
+        return {"message": "Invalid token", "status": 401}
+    return None
+
+@app.delete("/api/auth/logout")
+async def auth_logout(body, query, params):
+    result = middleware_use_token(query)
+    if result: return result
+
+    # Remove token from session
+    try:
+        with open("session.json", "r") as f:
+            sessions = json.load(f)
+        
+        if token in sessions:
+            sessions.remove(token)
+            with open("session.json", "w") as f:
+                json.dump(sessions, f)
             
-            if token in sessions:
-                sessions.remove(token)
-                with open("session.json", "w") as f:
-                    json.dump(sessions, f)
-                
-                return {"message": "Logout successful", "status": 200}
-        except Exception as e:
-            print("Error during logout:", e)
+            return {"message": "Logout successful", "status": 200}
+    except Exception as e:
+        print("Error during logout:", e)
     
-    return {"message": "Invalid token", "status": 401}
+    return {"message": "Logout failed", "status": 500}
 
 # ------------------------------------------------ #
 # wifi
 
 @app.get("/api/wifi/scan")
 async def wifi_scan(body, query, params):
+    result = middleware_use_token(query)
+    if result: return result
+
     global station
     nets = station.scan()
     result = []
