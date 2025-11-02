@@ -1,14 +1,30 @@
 import { useNavigate, Outlet } from "react-router";
 import { useAppStore } from "@/store/useAppStore";
 import AppGuard from "@/components/guards/AppGuard";
+import axios from "axios";
 
 export default function AppLayout() {
   const navigate = useNavigate();
-  const { language, toggleLanguage, clearAuth } = useAppStore();
+  const { language, toggleLanguage, clearAuth, token, getHostUrl } = useAppStore();
 
-  const handleLogout = () => {
-    clearAuth();
-    navigate("/auth/login", { replace: true });
+  const handleLogout = async () => {
+    try {
+      // Call logout API endpoint
+      if (token) {
+        const hostUrl = getHostUrl();
+        await axios.delete(`${hostUrl}/api/auth/logout`, {
+          params: { token },
+          timeout: 5000,
+        });
+      }
+    } catch (error) {
+      console.error('Logout API call failed:', error);
+      // Continue with local logout even if API call fails
+    } finally {
+      // Always clear local auth data and redirect
+      clearAuth();
+      navigate("/auth/login", { replace: true });
+    }
   };
 
   return (

@@ -277,6 +277,9 @@ async def auth_logout(body, query, params):
     result = middleware_use_token(query)
     if result: return result
 
+    # Get token from query parameters
+    token = query.get("token")
+    
     # Remove token from session
     try:
         with open("session.json", "r") as f:
