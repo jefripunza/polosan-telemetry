@@ -197,10 +197,80 @@ def read_log(filename):
     except Exception as e:
         print("Error during SD-card read:", e)
 
+# CHUNKED EXTRACTION FOR LARGE FILES
+def extract_large_file_chunked(myzip, filename, target_path, info):
+    """
+    Extract large files in chunks to avoid memory allocation errors.
+    """
+    print(f"Starting chunked extraction for {filename}")
+    
+    try:
+        import zlib
+        import gc
+        
+        # Read compressed data in chunks
+        myzip.fp.seek(info.header_offset)
+        local_header = myzip.fp.read(30)
+        filename_len = int.from_bytes(local_header[26:28], 'little')
+        extra_len = int.from_bytes(local_header[28:30], 'little')
+        myzip.fp.seek(info.header_offset + 30 + filename_len + extra_len)
+        
+        # Create decompressor object for streaming
+        if info.compress_type == 8:  # DEFLATE
+            decompressor = zlib.decompressobj(-15)  # Raw deflate
+        else:
+            print(f"❌ Unsupported compression type for chunked extraction: {info.compress_type}")
+            return False
+        
+        # Open target file for writing
+        with open(target_path, 'wb') as target:
+            bytes_read = 0
+            chunk_size = 4096  # 4KB chunks
+            
+            while bytes_read < info.compress_size:
+                # Read compressed chunk
+                read_size = min(chunk_size, info.compress_size - bytes_read)
+                compressed_chunk = myzip.fp.read(read_size)
+                
+                if not compressed_chunk:
+                    break
+                
+                bytes_read += len(compressed_chunk)
+                
+                # Decompress chunk
+                try:
+                    if bytes_read >= info.compress_size:
+                        # Last chunk - finalize decompression
+                        decompressed_chunk = decompressor.decompress(compressed_chunk)
+                        remaining = decompressor.flush()
+                        if decompressed_chunk:
+                            target.write(decompressed_chunk)
+                        if remaining:
+                            target.write(remaining)
+                    else:
+                        # Regular chunk
+                        decompressed_chunk = decompressor.decompress(compressed_chunk)
+                        if decompressed_chunk:
+                            target.write(decompressed_chunk)
+                    
+                    # Force garbage collection after each chunk
+                    gc.collect()
+                    
+                except Exception as e:
+                    print(f"❌ Decompression error in chunk: {e}")
+                    return False
+        
+        print(f"✅ Chunked extraction successful: {filename}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Chunked extraction failed: {e}")
+        return False
+
 # ZIP EXTRACTION FUNCTION
 def extract_zip_file(zip_filepath, extract_to_path):
     """
-    Extract ZIP file to specified directory with MicroPython compatibility.
+    Extract ZIP file to specified directory with improved MicroPython compatibility.
     
     Args:
         zip_filepath (str): Path to the ZIP file
@@ -219,6 +289,8 @@ def extract_zip_file(zip_filepath, extract_to_path):
                 if filename.endswith('/'):
                     continue
                     
+                print(f"Processing file: {filename}")
+                
                 # Create target path manually
                 target_path = extract_to_path + "/" + filename
                 
@@ -240,75 +312,100 @@ def extract_zip_file(zip_filepath, extract_to_path):
                     except Exception as e:
                         print(f"Error creating directory: {e}")
                 
-                # Get file info to check compression type
-                info = myzip.getinfo(filename)
-                print(f"Processing {filename} - compression type: {info.compress_type}")
+                # Try extraction methods in order of preference
+                success = False
                 
-                # Extract the file based on compression type
+                # Get file info first to check size and compression
+                info = myzip.getinfo(filename)
+                file_size = info.file_size
+                print(f"File size: {file_size} bytes, compression: {info.compress_type}")
+                
+                # Handle large files with chunked extraction
+                if file_size > 65536:  # 64KB limit
+                    print(f"⚠️ File {filename} is large ({file_size} bytes) - attempting chunked extraction")
+                    try:
+                        success = extract_large_file_chunked(myzip, filename, target_path, info)
+                        if success:
+                            extracted_files.append(filename)
+                        continue
+                    except Exception as e:
+                        print(f"❌ Chunked extraction failed for {filename}: {e}")
+                        continue
+                
+                # Method 1: Try standard ZipFile.read() (MicroPython compatible)
                 try:
-                    if info.compress_type == 0:  # ZIP_STORED (no compression)
-                        print(f"File {filename} is stored (no compression)")
-                        # For uncompressed files, try direct read
-                        with myzip.open(filename, 'r') as zf:
+                    print(f"Method 1: Standard extraction for {filename}")
+                    content = myzip.read(filename)  # MicroPython only takes filename
+                    with open(target_path, 'wb') as target:
+                        target.write(content)
+                    print(f"✅ Extracted successfully: {filename} ({len(content)} bytes)")
+                    extracted_files.append(filename)
+                    success = True
+                except Exception as e1:
+                    print(f"Method 1 failed: {e1}")
+                
+                # Method 2: Try with ZipFile.open() if standard read fails
+                if not success:
+                    try:
+                        print(f"Method 2: Stream extraction for {filename}")
+                        with myzip.open(filename) as zf:  # MicroPython syntax
                             content = zf.read()
                             with open(target_path, 'wb') as target:
                                 target.write(content)
-                        print(f"Extracted (stored): {filename}")
+                        print(f"✅ Extracted via stream: {filename} ({len(content)} bytes)")
                         extracted_files.append(filename)
-                    else:
-                        print(f"File {filename} is compressed (type: {info.compress_type})")
+                        success = True
+                    except Exception as e2:
+                        print(f"Method 2 failed: {e2}")
+                
+                # Method 3: Manual decompression for DEFLATE (MicroPython compatible)
+                if not success:
+                    try:
+                        print(f"Method 3: Manual extraction for {filename} (compression: {info.compress_type})")
                         
                         if info.compress_type == 8:  # ZIP_DEFLATED
-                            print("Attempting manual DEFLATE decompression...")
-                            try:
-                                # Try to read raw compressed data and decompress manually
-                                import zlib
-                                
-                                # Get the raw file data from the ZIP
-                                myzip.fp.seek(info.header_offset)
-                                # Skip the local file header
-                                local_header = myzip.fp.read(30)  # Basic header size
-                                filename_len = int.from_bytes(local_header[26:28], 'little')
-                                extra_len = int.from_bytes(local_header[28:30], 'little')
-                                myzip.fp.seek(info.header_offset + 30 + filename_len + extra_len)
-                                
-                                # Read the compressed data
-                                compressed_data = myzip.fp.read(info.compress_size)
-                                print(f"Read {len(compressed_data)} bytes of compressed data")
-                                
-                                # Decompress using zlib with raw deflate
+                            import zlib
+                            
+                            # Read raw compressed data
+                            myzip.fp.seek(info.header_offset)
+                            local_header = myzip.fp.read(30)
+                            filename_len = int.from_bytes(local_header[26:28], 'little')
+                            extra_len = int.from_bytes(local_header[28:30], 'little')
+                            myzip.fp.seek(info.header_offset + 30 + filename_len + extra_len)
+                            
+                            compressed_data = myzip.fp.read(info.compress_size)
+                            
+                            # Try different decompression methods (MicroPython compatible)
+                            decompressed = None
+                            wbits_options = [-15, 15, -12, 12]  # MicroPython compatible values
+                            
+                            for wbits in wbits_options:
                                 try:
-                                    decompressed = zlib.decompress(compressed_data, -15)  # -15 for raw deflate
-                                    print(f"Decompressed to {len(decompressed)} bytes")
-                                    
-                                    with open(target_path, 'wb') as target:
-                                        target.write(decompressed)
-                                    print(f"Extracted (manual deflate): {filename}")
-                                    extracted_files.append(filename)
-                                except Exception as e3:
-                                    print(f"Manual decompression failed: {e3}")
-                                    # Last resort: try to extract whatever we can
-                                    with open(target_path, 'wb') as target:
-                                        target.write(compressed_data)  # Write compressed data as-is
-                                    print(f"Wrote compressed data as-is: {filename}")
-                                    
-                            except Exception as e2:
-                                print(f"Manual extraction failed: {e2}")
-                        else:
-                            # For other compression types, try the normal methods
-                            try:
-                                content = myzip.read(filename)
+                                    decompressed = zlib.decompress(compressed_data, wbits)
+                                    print(f"Decompression successful with wbits={wbits}")
+                                    break
+                                except Exception as decomp_err:
+                                    print(f"wbits={wbits} failed: {decomp_err}")
+                                    continue
+                            
+                            if decompressed:
                                 with open(target_path, 'wb') as target:
-                                    target.write(content)
-                                print(f"Extracted (other compression): {filename}")
+                                    target.write(decompressed)
+                                print(f"✅ Manual extraction successful: {filename} ({len(decompressed)} bytes)")
                                 extracted_files.append(filename)
-                            except Exception as e1:
-                                print(f"Other compression extraction failed: {e1}")
-                                        
-                except Exception as e:
-                    print(f"All extraction methods failed for {filename}: {e}")
+                                success = True
+                            else:
+                                print(f"❌ Manual decompression failed for {filename}")
+                        else:
+                            print(f"❌ Unsupported compression type {info.compress_type} for {filename}")
+                            
+                    except Exception as e3:
+                        print(f"Method 3 failed: {e3}")
+                
+                if not success:
+                    print(f"❌ All extraction methods failed for {filename}")
         
-        print('ZIP extraction completed!')
+        print(f'ZIP extraction completed! Successfully extracted {len(extracted_files)} files.')
         return {"success": True, "extracted_files": extracted_files}
         
     except Exception as e:

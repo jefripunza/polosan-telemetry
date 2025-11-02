@@ -38,13 +38,16 @@ async function createZip() {
   // Create a file to stream archive data to
   const output = fs.createWriteStream(zipPath);
   const archive = archiver('zip', {
+    // Konfigurasi untuk kompatibilitas MicroPython
     zlib: { 
-      // level: 9,           // Maximum compression level
-      // chunkSize: 1024,    // Smaller chunks for better compression
-      // windowBits: 15,     // Maximum window size
-      // memLevel: 8         // Maximum memory usage for better compression
+      level: 1,             // Kompresi minimal untuk kompatibilitas
+      chunkSize: 16384,     // Chunk size yang lebih besar
+      windowBits: 15,       // Standard window size
+      memLevel: 8           // Memory level standard
     },
-    // store: false          // Always compress, never just store
+    store: false,           // Selalu kompres, jangan store
+    forceLocalTime: true,   // Gunakan local time
+    forceZip64: false       // Hindari ZIP64 format
   });
 
   // Calculate original size
@@ -92,14 +95,22 @@ async function createZip() {
     }
     
     if (stat.isDirectory()) {
-      // Add directory and its contents recursively
-      archive.directory(itemPath, item);
+      // Add directory and its contents recursively dengan kompresi minimal
+      archive.directory(itemPath, item, {
+        // Opsi untuk setiap file dalam directory
+        store: false  // Pastikan tidak ada file yang di-store tanpa kompresi
+      });
       console.log(`📁 Menambahkan folder: ${item}`);
       // Calculate directory size recursively
       originalSize += getDirSize(itemPath);
     } else {
-      // Add file
-      archive.file(itemPath, { name: item });
+      // Add file dengan opsi kompresi yang kompatibel
+      archive.file(itemPath, { 
+        name: item,
+        // Opsi kompresi per file
+        store: false,           // Jangan store tanpa kompresi
+        date: new Date()        // Set tanggal eksplisit
+      });
       console.log(`📄 Menambahkan file: ${item} (${(stat.size / 1024).toFixed(1)} KB)`);
       originalSize += stat.size;
     }
