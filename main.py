@@ -38,6 +38,7 @@ db_json = DataJSON("db.json", {
     # tidak boleh berubah ketika import
     "device:id": "",
     "device:name": "",
+    "device:integration_mode": "", # webhook, mqtt, lora
     "wifi:ssid": "Polosan-"+device_id,
     "wifi:pass": "12345678",
     "web:port": 80,
@@ -64,12 +65,8 @@ db_json = DataJSON("db.json", {
 })
 db = db_json.read()
 
-# create session.json file if not exist
-try:
-    os.stat("session.json")
-except OSError:
-    with open("session.json", "w") as f:
-        f.write(json.dumps([]))
+with open("session.json", "w") as f:
+    f.write(json.dumps([]))
 
 
 ## ============================================== ##
