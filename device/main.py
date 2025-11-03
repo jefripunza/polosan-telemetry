@@ -223,10 +223,150 @@ def random_string(length):
     chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
     return "".join(chars[urandom.getrandbits(6) % len(chars)] for _ in range(length))
 
+def extract_zip_file(zip_filepath, extract_to_path):
+    """
+    Extract ZIP file to specified directory with MicroPython compatibility.
+    
+    Args:
+        zip_filepath (str): Path to the ZIP file
+        extract_to_path (str): Directory to extract files to
+    
+    Returns:
+        dict: Result with success status and extracted files list
+    """
+    print(f'Extracting ZIP file {zip_filepath} to {extract_to_path}...')
+    extracted_files = []
+    
+    try:
+        with ZipFile(zip_filepath, "r") as myzip:
+            for filename in myzip.namelist():
+                # Skip directories (they end with /)
+                if filename.endswith('/'):
+                    continue
+                    
+                # Create target path manually
+                target_path = extract_to_path + "/" + filename
+                
+                # Create directory structure if needed
+                if '/' in filename:
+                    dir_path = extract_to_path + "/" + filename.rsplit('/', 1)[0]
+                    try:
+                        # Create directories recursively
+                        parts = dir_path.split('/')
+                        current_path = ""
+                        for part in parts:
+                            if part:  # Skip empty parts
+                                current_path += "/" + part
+                                try:
+                                    import os
+                                    os.mkdir(current_path)
+                                except OSError:
+                                    pass  # Directory might already exist
+                    except Exception as e:
+                        print(f"Error creating directory: {e}")
+                
+                # Get file info to check compression type
+                info = myzip.getinfo(filename)
+                print(f"Processing {filename} - compression type: {info.compress_type}")
+                
+                # Extract the file based on compression type
+                try:
+                    if info.compress_type == 0:  # ZIP_STORED (no compression)
+                        print(f"File {filename} is stored (no compression)")
+                        # For uncompressed files, try direct read
+                        with myzip.open(filename, 'r') as zf:
+                            content = zf.read()
+                            with open(target_path, 'wb') as target:
+                                target.write(content)
+                        print(f"Extracted (stored): {filename}")
+                        extracted_files.append(filename)
+                    else:
+                        print(f"File {filename} is compressed (type: {info.compress_type})")
+                        
+                        if info.compress_type == 8:  # ZIP_DEFLATED
+                            print("Attempting manual DEFLATE decompression...")
+                            try:
+                                # Try to read raw compressed data and decompress manually
+                                import zlib
+                                
+                                # Get the raw file data from the ZIP
+                                myzip.fp.seek(info.header_offset)
+                                # Skip the local file header
+                                local_header = myzip.fp.read(30)  # Basic header size
+                                filename_len = int.from_bytes(local_header[26:28], 'little')
+                                extra_len = int.from_bytes(local_header[28:30], 'little')
+                                myzip.fp.seek(info.header_offset + 30 + filename_len + extra_len)
+                                
+                                # Read the compressed data
+                                compressed_data = myzip.fp.read(info.compress_size)
+                                print(f"Read {len(compressed_data)} bytes of compressed data")
+                                
+                                # Decompress using zlib with raw deflate
+                                try:
+                                    decompressed = zlib.decompress(compressed_data, -15)  # -15 for raw deflate
+                                    print(f"Decompressed to {len(decompressed)} bytes")
+                                    
+                                    with open(target_path, 'wb') as target:
+                                        target.write(decompressed)
+                                    print(f"Extracted (manual deflate): {filename}")
+                                    extracted_files.append(filename)
+                                except Exception as e3:
+                                    print(f"Manual decompression failed: {e3}")
+                                    # Last resort: try to extract whatever we can
+                                    with open(target_path, 'wb') as target:
+                                        target.write(compressed_data)  # Write compressed data as-is
+                                    print(f"Wrote compressed data as-is: {filename}")
+                                    
+                            except Exception as e2:
+                                print(f"Manual extraction failed: {e2}")
+                        else:
+                            # For other compression types, try the normal methods
+                            try:
+                                content = myzip.read(filename)
+                                with open(target_path, 'wb') as target:
+                                    target.write(content)
+                                print(f"Extracted (other compression): {filename}")
+                                extracted_files.append(filename)
+                            except Exception as e1:
+                                print(f"Other compression extraction failed: {e1}")
+                                        
+                except Exception as e:
+                    print(f"All extraction methods failed for {filename}: {e}")
+        
+        print('ZIP extraction completed!')
+        return {"success": True, "extracted_files": extracted_files}
+        
+    except Exception as e:
+        print(f"ZIP extraction error: {e}")
+        return {"success": False, "error": str(e), "extracted_files": extracted_files}
+
+def clear_directory(directory_path):
+    """Clear all files and subdirectories from a directory."""
+    import os
+    try:
+        for item in os.listdir(directory_path):
+            item_path = directory_path + "/" + item
+            try:
+                # Try to remove as file first
+                os.remove(item_path)
+                print(f"Removed file: {item_path}")
+            except OSError:
+                # If it's a directory, remove recursively
+                try:
+                    clear_directory(item_path)
+                    os.rmdir(item_path)
+                    print(f"Removed directory: {item_path}")
+                except OSError as e:
+                    print(f"Could not remove {item_path}: {e}")
+    except OSError as e:
+        print(f"Error clearing directory {directory_path}: {e}")
+
 ## ============================================== ##
 # Setup Router
 
 app = Router()
+
+app.static("/", "/web")  # serve folder web
 
 # ------------------------------------------------ #
 # basic
@@ -234,6 +374,34 @@ app = Router()
 @app.get("/")
 async def root(body, query, params):
     return {"message": "OK"}
+
+@app.post("/upload/:id")
+async def upload_handler(body, query, params, files):
+    print("Query:", query)
+    print("Params:", params)
+    print("Files:", files)
+    file = files.get("file")
+    filepath = file.get("path")
+    
+    # Clear the test directory first
+    print("Clearing /web directory...")
+    clear_directory("/web")
+    
+    # Extract ZIP file to temporary location first
+    result = extract_zip_file(filepath, "/web")
+    
+    if result["success"]:
+        return {
+            "ok": True, 
+            "message": "ZIP file extracted successfully",
+            "extracted_files": result["extracted_files"]
+        }
+    else:
+        return {
+            "ok": False, 
+            "error": result["error"],
+            "extracted_files": result["extracted_files"]
+        }
 
 # ------------------------------------------------ #
 # auth

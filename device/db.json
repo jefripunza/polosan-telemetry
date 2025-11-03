@@ -1,0 +1,22 @@
+{
+  "web:port": 80,
+  "wifi:station": [
+    { "pass": "ojolalipw", "is_selected": true, "ssid": "HERDI" },
+    { "pass": "wonkndeso", "is_selected": true, "ssid": "Tab A9+ milik Jefri" }
+  ],
+  "device:id": "",
+  "wifi:ssid": "Polosan-80b54ef92c44",
+  "web:password": "12345678",
+  "webhook:url": "",
+  "board:digital": {},
+  "module:lora": [],
+  "uart:baudrate": 115200,
+  "device:name": "",
+  "module:adc": {},
+  "wifi:pass": "12345678",
+  "log:interval": 1,
+  "uart:callback_url": "",
+  "board:analog": {},
+  "webhook:apikey": "",
+  "module:rs485": []
+}

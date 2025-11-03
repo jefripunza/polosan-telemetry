@@ -7,17 +7,13 @@ export type Language = "id" | "en";
 interface AppState {
   language: Language;
   token: string | null;
-  ipAddress: string | null;
-  wifiMode: 'access-point' | 'station' | null;
   isAuthenticated: boolean;
   toggleLanguage: () => void;
   setLanguage: (language: Language) => void;
   setToken: (token: string) => void;
-  setIpAddress: (ipAddress: string, wifiMode: 'access-point' | 'station') => void;
   clearToken: () => void;
   clearAuth: () => void;
-  getHostUrl: () => string;
-  validateToken: (host?: string) => Promise<boolean>;
+  validateToken: () => Promise<boolean>;
 }
 
 export const useAppStore = create<AppState>()(
@@ -25,8 +21,6 @@ export const useAppStore = create<AppState>()(
     (set, get) => ({
       language: "id",
       token: null,
-      ipAddress: null,
-      wifiMode: null,
       isAuthenticated: false,
 
       toggleLanguage: () => {
@@ -43,44 +37,29 @@ export const useAppStore = create<AppState>()(
         set({ token, isAuthenticated: true });
       },
 
-      setIpAddress: (ipAddress: string, wifiMode: 'access-point' | 'station') => {
-        const finalIpAddress = wifiMode === 'access-point' ? '192.168.4.1' : ipAddress;
-        set({ ipAddress: finalIpAddress, wifiMode });
-      },
-
       clearToken: () => {
         set({ token: null, isAuthenticated: false });
       },
 
       clearAuth: () => {
-        set({ token: null, ipAddress: null, wifiMode: null, isAuthenticated: false });
+        set({ token: null, isAuthenticated: false });
       },
 
-      getHostUrl: () => {
-        const { ipAddress, wifiMode } = get();
-        if (wifiMode === 'access-point') {
-          return 'http://192.168.4.1';
-        } else if (wifiMode === 'station' && ipAddress) {
-          return `http://${ipAddress}`;
-        }
-        // Fallback to current hostname
-        return `http://${window.location.hostname}`;
-      },
-
-      validateToken: async (host?: string) => {
+      validateToken: async () => {
         const { token } = get();
         if (!token) {
           get().clearToken();
           return false;
         }
 
-        const hostUrl = host || get().getHostUrl();
-
         try {
-          const response = await axios.get(`${hostUrl}/api/auth/token-validate`, {
-            params: { token },
-            timeout: 5000,
-          });
+          const response = await axios.get(
+            `${window.location.origin}/api/auth/token-validate`,
+            {
+              params: { token },
+              timeout: 5000,
+            }
+          );
 
           if (response.status === 200) {
             set({ isAuthenticated: true });
@@ -90,7 +69,7 @@ export const useAppStore = create<AppState>()(
             return false;
           }
         } catch (error) {
-          console.error('Token validation failed:', error);
+          console.error("Token validation failed:", error);
           get().clearToken();
           return false;
         }
@@ -101,8 +80,6 @@ export const useAppStore = create<AppState>()(
       partialize: (state) => ({
         language: state.language,
         token: state.token,
-        ipAddress: state.ipAddress,
-        wifiMode: state.wifiMode,
         isAuthenticated: state.isAuthenticated,
       }),
     }

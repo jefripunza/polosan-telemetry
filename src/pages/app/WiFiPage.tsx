@@ -65,11 +65,10 @@ export default function WiFiPage() {
   const handleScanNetworks = async () => {
     setIsScanning(true);
     try {
-      const { getHostUrl } = useAppStore.getState();
       const token = useAppStore.getState().token;
 
       const response = await axios.get(
-        `${getHostUrl()}/api/wifi/list?token=${token}`
+        `${window.location.origin}/api/wifi/list?token=${token}`
       );
 
       if (response.data && response.data.data) {
