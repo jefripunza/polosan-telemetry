@@ -300,16 +300,16 @@ async def auth_logout(body, query, params):
 # ------------------------------------------------ #
 # wifi
 
-@app.get("/api/wifi/scan")
-async def wifi_scan(body, query, params):
+@app.get("/api/wifi/list")
+async def wifi_list(body, query, params):
     result = middleware_use_token(query)
     if result: return result
 
-    global station
+    global station, wifi_sta_ssid_connected
     nets = station.scan()
-    result = []
+    availables = []
     for ssid, bssid, channel, RSSI, authmode, hidden in nets:
-        result.append({
+        availables.append({
             "ssid": ssid.decode(),
             "bssid": ":".join("%02x" % b for b in bssid),
             "channel": channel,
@@ -317,7 +317,12 @@ async def wifi_scan(body, query, params):
             "authmode": authmode,
             "hidden": hidden,
         })
-    return {"data": result}
+    saveds = db.get("wifi:station", [])
+    return {"data": {
+        "availables": availables,
+        "saveds": saveds,
+        "ssid_connnected": wifi_sta_ssid_connected, # untuk hide list yang sudah terhubung
+    }}
 
 # ------------------------------------------------ #
 
@@ -562,7 +567,7 @@ async def worker_uart():
 async def main():
     await asyncio.gather(
         worker_show_memory(),
-        worker_display(),
+        # worker_display(),
         worker_wifi_ap(),
         worker_wifi_station(),
         worker_rtc_sync_time(),
@@ -571,6 +576,9 @@ async def main():
         worker_sdcard(),
     )
 asyncio.run(main())
+
+
+
 
 
 
