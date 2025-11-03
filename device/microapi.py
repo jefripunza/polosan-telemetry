@@ -340,8 +340,16 @@ class Router:
                 content = result.encode('utf-8')
                 status_code = 200
                 content_type = self._guess_content_type_from_content(result.encode('utf-8'))
+            elif isinstance(result, tuple) and len(result) == 3:
+                # 3-tuple return (content, status_code, content_type)
+                content, status_code, content_type = result
+                if isinstance(content, str):
+                    content = content.encode('utf-8')
+                elif isinstance(content, dict):
+                    content = json.dumps(content).encode('utf-8')
+                # bytes content stays as-is
             elif isinstance(result, tuple) and len(result) == 2:
-                # Tuple return (content, status_code)
+                # 2-tuple return (content, status_code)
                 content, status_code = result
                 content_type = "application/json" if isinstance(content, dict) else "text/plain"
                 if isinstance(content, dict):
