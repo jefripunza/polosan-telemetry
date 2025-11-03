@@ -121,6 +121,26 @@ class Router:
         # print(f"DEBUG: Handling request {method} {path}")
         # print(f"DEBUG: Registered routes: {list(self.routes.keys())}")
 
+        # Check static files FIRST before dynamic routes
+        for url_prefix, folder in self.static_routes.items():
+            if path.startswith(url_prefix):
+                rel_path = path[len(url_prefix):]
+                if not rel_path or rel_path.endswith("/"):
+                    rel_path += "index.html"
+                file_path = f"{folder}/{rel_path}".lstrip("/")
+
+                try:
+                    with open(file_path, "rb") as f:
+                        content = f.read()
+                    return {
+                        "content": content,
+                        "status": 200,
+                        "content_type": self._guess_content_type(file_path),
+                    }
+                except OSError:
+                    # File not found, continue to dynamic routes
+                    pass
+
         # dynamic route - prioritize exact matches over wildcard matches
         matched = False
         wildcard_matches = []
@@ -157,25 +177,6 @@ class Router:
                             return await handler(body)
                         except TypeError:
                             return await handler()
-
-        # static file
-        for url_prefix, folder in self.static_routes.items():
-            if path.startswith(url_prefix):
-                rel_path = path[len(url_prefix):]
-                if not rel_path or rel_path.endswith("/"):
-                    rel_path += "index.html"
-                file_path = f"{folder}/{rel_path}".lstrip("/")
-
-                try:
-                    with open(file_path, "rb") as f:
-                        content = f.read()
-                    return {
-                        "content": content,
-                        "status": 200,
-                        "content_type": self._guess_content_type(file_path),
-                    }
-                except OSError:
-                    return {"error": "Not Found 1", "status": 404}
 
         if not matched:
             print(f"DEBUG: No route matched for {method} {path}")
