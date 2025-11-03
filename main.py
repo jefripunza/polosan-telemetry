@@ -125,6 +125,7 @@ LCD_COLS = 16
 
 # Buzzer
 buzzer = Pin(pin_buzzer, Pin.OUT)
+buzzer.off()
 
 # I2C
 i2c = I2C(0, scl=Pin(pin_scl), sda=Pin(pin_sda), freq=400000)
@@ -344,7 +345,7 @@ async def worker_display():
     next_section_count = 10
     while True:
         if is_booting:
-            buzzer.on()
+            # buzzer.on()
             display_render(0, 0, "Welcome to ...")
             display_render(1, 0, "Polosan Scada")
             await asyncio.sleep(3)
@@ -560,8 +561,8 @@ async def worker_uart():
 
 async def main():
     await asyncio.gather(
-        # worker_show_memory(),
-        # worker_display(),
+        worker_show_memory(),
+        worker_display(),
         worker_wifi_ap(),
         worker_wifi_station(),
         worker_rtc_sync_time(),
