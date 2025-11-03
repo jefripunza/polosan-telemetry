@@ -371,9 +371,9 @@ app.static("/", "/web")  # serve folder web
 # ------------------------------------------------ #
 # basic
 
-@app.get("/")
-async def root(body, query, params):
-    return {"message": "OK"}
+# @app.get("/")
+# async def root(body, query, params):
+#     return {"message": "OK"}
 
 @app.post("/upload/:id")
 async def upload_handler(body, query, params, files):
@@ -491,6 +491,15 @@ async def wifi_list(body, query, params):
         "saveds": saveds,
         "ssid_connnected": wifi_sta_ssid_connected, # untuk hide list yang sudah terhubung
     }}
+
+# ------------------------------------------------ #
+
+@app.get("/*")
+async def spa_fallback(body, query, params):
+    # Serve index.html for SPA routing (React Router)
+    with open("web/index.html", "rb") as f:
+        content = f.read()
+    return content, 200, "text/html"
 
 # ------------------------------------------------ #
 

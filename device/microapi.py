@@ -70,6 +70,38 @@ class Router:
     def _match_path_params(self, route_path, request_path):
         route_parts = [p for p in route_path.split('/') if p]
         request_parts = [p for p in request_path.split('/') if p]
+        
+        # Handle wildcard routes (e.g., "/*" matches any path that starts with "/")
+        if route_parts and route_parts[-1] == '*':
+            # Wildcard route - check if request path starts with the route prefix
+            route_prefix_parts = route_parts[:-1]  # Remove the '*' part
+            
+            # If route is just "/*", it matches any path
+            if len(route_prefix_parts) == 0:
+                return {}
+            
+            # Check if request path starts with the route prefix
+            if len(request_parts) >= len(route_prefix_parts):
+                params = {}
+                for i, (route_part, request_part) in enumerate(zip(route_prefix_parts, request_parts)):
+                    if route_part.startswith(':'):
+                        param_name = route_part[1:]
+                        params[param_name] = request_part
+                    elif route_part != request_part:
+                        return None
+                
+                # Add remaining path parts as a wildcard parameter
+                if len(request_parts) > len(route_prefix_parts):
+                    remaining_parts = request_parts[len(route_prefix_parts):]
+                    params['*'] = '/'.join(remaining_parts)
+                else:
+                    params['*'] = ''
+                
+                return params
+            else:
+                return None
+        
+        # Regular exact matching
         if len(route_parts) != len(request_parts):
             return None
         params = {}
@@ -83,29 +115,50 @@ class Router:
 
     # ============ PRIVATE: HTTP Handler Request ============
     async def _handle_request(self, method, path, body=None, query_params=None, files=None):
-        print("E.1 ...")
         if files is None:
             files = {}
 
         # print(f"DEBUG: Handling request {method} {path}")
         # print(f"DEBUG: Registered routes: {list(self.routes.keys())}")
 
-        # dynamic route
-        print("E.2 ...")
+        # dynamic route - prioritize exact matches over wildcard matches
         matched = False
+        wildcard_matches = []
+        exact_matches = []
+        
         for route_key, handler in self.routes.items():
             route_method, route_path = route_key.split(':', 1)
-            print("E.2.1 ...", route_method, method)
             if route_method != method:
                 continue
             path_params = self._match_path_params(route_path, path)
-            print("E.2.2 ...", path_params)
             if path_params is not None:
                 matched = True
+                # Separate wildcard routes from exact matches
+                if route_path.endswith('*'):
+                    wildcard_matches.append((handler, path_params))
+                else:
+                    exact_matches.append((handler, path_params))
+        
+        # Try exact matches first, then wildcard matches
+        all_matches = exact_matches + wildcard_matches
+        
+        for handler, path_params in all_matches:
+            # Try to call with files parameter first, fallback to 3 params for backward compatibility
+            try:
                 return await handler(body, query_params, path_params, files)
+            except TypeError:
+                try:
+                    return await handler(body, query_params, path_params)
+                except TypeError:
+                    try:
+                        return await handler(body, query_params)
+                    except TypeError:
+                        try:
+                            return await handler(body)
+                        except TypeError:
+                            return await handler()
 
         # static file
-        print("E.3 ...")
         for url_prefix, folder in self.static_routes.items():
             if path.startswith(url_prefix):
                 rel_path = path[len(url_prefix):]
@@ -124,7 +177,6 @@ class Router:
                 except OSError:
                     return {"error": "Not Found 1", "status": 404}
 
-        print("E.4 ...")
         if not matched:
             print(f"DEBUG: No route matched for {method} {path}")
         return {"error": "Not Found 2", "status": 404}
@@ -247,19 +299,16 @@ class Router:
         tmp_files = []
         try:
             # baca header manual
-            print("A ...")
             request_header = await self._read_headers(reader)
             header_str = request_header.decode("utf-8", "ignore")
 
             # cari content-length
-            print("B ...")
             content_length = 0
             for line in header_str.split("\r\n"):
                 if line.lower().startswith("content-length:"):
                     content_length = int(line.split(":", 1)[1].strip())
 
             # baca body sesuai content-length
-            print("C ...")
             body_bytes = b""
             while len(body_bytes) < content_length:
                 chunk = await reader.read(content_length - len(body_bytes))
@@ -267,32 +316,45 @@ class Router:
                     break
                 body_bytes += chunk
 
-            print("D ...")
             request = request_header + body_bytes
             method, path, body, query_params, files = self._parse_http_request(request)
             tmp_files = [info["path"] for info in files.values()]
 
-            print("E ...")
             result = await self._handle_request(method, path, body, query_params, files)
 
-            print("F ...")
+            # Handle different types of handler returns
             if isinstance(result, dict) and "content" in result:
+                # Dictionary with content key (structured response)
                 content = result["content"]
                 status_code = result.get("status", 200)
                 content_type = result.get("content_type", "application/octet-stream")
                 if isinstance(content, str):
                     content = content.encode()
+            elif isinstance(result, bytes):
+                # Raw bytes return (like HTML content)
+                content = result
+                status_code = 200
+                content_type = self._guess_content_type_from_content(result)
+            elif isinstance(result, str):
+                # Raw string return
+                content = result.encode('utf-8')
+                status_code = 200
+                content_type = self._guess_content_type_from_content(result.encode('utf-8'))
+            elif isinstance(result, tuple) and len(result) == 2:
+                # Tuple return (content, status_code)
+                content, status_code = result
+                content_type = "application/json" if isinstance(content, dict) else "text/plain"
+                if isinstance(content, dict):
+                    content = json.dumps(content).encode()
+                elif isinstance(content, str):
+                    content = content.encode()
             else:
-                if isinstance(result, tuple) and len(result) == 2:
-                    content, status_code = result
-                else:
-                    response_data = {k: v for k, v in result.items() if k != 'status'}
-                    content = json.dumps(response_data)
-                    status_code = result.get("status", 200)
+                # Dictionary return (JSON response)
+                response_data = {k: v for k, v in result.items() if k != 'status'}
+                content = json.dumps(response_data).encode()
+                status_code = result.get("status", 200)
                 content_type = "application/json"
-                content = content.encode() if isinstance(content, str) else content
 
-            print("G ...")
             status_text = "OK" if status_code == 200 else \
                           "Bad Request" if status_code == 400 else \
                           "Not Found" if status_code == 404 else \
@@ -305,10 +367,8 @@ class Router:
                 "Connection: close\r\n\r\n"
             ).encode() + content
 
-            print("H ...")
             await writer.awrite(http_response)
             await writer.aclose()
-            print("I ...")
         except Exception as e:
             print("handle_client Error:", e)
         finally:
@@ -343,6 +403,33 @@ class Router:
             return "text/plain"
         else:
             return "application/octet-stream"
+
+    def _guess_content_type_from_content(self, content: bytes) -> str:
+        """Guess content type from the actual content bytes"""
+        if not content:
+            return "application/octet-stream"
+        
+        # Check for HTML content
+        content_lower = content[:100].lower()  # Check first 100 bytes
+        if b'<!doctype html' in content_lower or b'<html' in content_lower:
+            return "text/html"
+        elif b'<svg' in content_lower:
+            return "image/svg+xml"
+        elif content.startswith(b'\x89PNG'):
+            return "image/png"
+        elif content.startswith(b'\xff\xd8\xff'):
+            return "image/jpeg"
+        elif content.startswith(b'GIF8'):
+            return "image/gif"
+        elif b'<' in content_lower and b'>' in content_lower:
+            return "text/html"  # Likely HTML/XML
+        else:
+            # Try to decode as text
+            try:
+                content.decode('utf-8')
+                return "text/plain"
+            except UnicodeDecodeError:
+                return "application/octet-stream"
 
     # ============ PRIVATE: Server Core ============
     async def _start_server(self, host, port, callback):
