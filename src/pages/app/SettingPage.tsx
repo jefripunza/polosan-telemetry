@@ -3,7 +3,7 @@ import { useAppStore } from "@/store/useAppStore";
 
 type SettingTab =
   | "identity"
-  | "network"
+  | "access-point"
   | "webserver"
   | "server-integration"
   | "log"
@@ -53,8 +53,8 @@ export default function SettingPage() {
       ),
     },
     {
-      id: "network" as SettingTab,
-      name: language === "id" ? "Jaringan" : "Network",
+      id: "access-point" as SettingTab,
+      name: language === "id" ? "Access Point" : "Access Point",
       icon: (
         <svg
           className="w-5 h-5"
@@ -153,8 +153,8 @@ export default function SettingPage() {
     switch (activeTab) {
       case "identity":
         return <IdentityTab />;
-      case "network":
-        return <NetworkTab />;
+      case "access-point":
+        return <AccessPointTab />;
       case "webserver":
         return <WebServerTab />;
       case "server-integration":
@@ -284,30 +284,6 @@ function IdentityTab() {
               placeholder="MOL-001"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              {language === "id" ? "Lokasi" : "Location"}
-            </label>
-            <input
-              type="text"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-              placeholder={
-                language === "id" ? "Masukkan lokasi" : "Enter location"
-              }
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              {language === "id" ? "Deskripsi" : "Description"}
-            </label>
-            <input
-              type="text"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-              placeholder={
-                language === "id" ? "Deskripsi perangkat" : "Device description"
-              }
-            />
-          </div>
         </div>
       </div>
 
@@ -321,25 +297,18 @@ function IdentityTab() {
 }
 
 // Network Tab Component
-function NetworkTab() {
+function AccessPointTab() {
   const { language } = useAppStore();
 
   return (
     <div className="space-y-6">
       <div>
         <h3 className="text-lg font-medium text-gray-900 mb-4">
-          {language === "id" ? "Konfigurasi Jaringan" : "Network Configuration"}
+          {language === "id"
+            ? "Konfigurasi Access Point"
+            : "Access Point Configuration"}
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              {language === "id" ? "Mode WiFi" : "WiFi Mode"}
-            </label>
-            <select className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
-              <option value="ap">Access Point</option>
-              <option value="station">Station</option>
-            </select>
-          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               {language === "id" ? "SSID" : "SSID"}
@@ -352,22 +321,12 @@ function NetworkTab() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              {language === "id" ? "Password WiFi" : "WiFi Password"}
+              {language === "id" ? "Password" : "Password"}
             </label>
             <input
               type="password"
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
               placeholder="********"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              {language === "id" ? "IP Address" : "IP Address"}
-            </label>
-            <input
-              type="text"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-              placeholder="192.168.4.1"
             />
           </div>
         </div>
@@ -407,24 +366,13 @@ function WebServerTab() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              {language === "id" ? "Timeout (detik)" : "Timeout (seconds)"}
+              {language === "id" ? "Password Setup" : "Setup Password"}
             </label>
             <input
-              type="number"
+              type="password"
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-              placeholder="30"
+              placeholder="********"
             />
-          </div>
-          <div className="sm:col-span-2">
-            <label className="flex items-center">
-              <input
-                type="checkbox"
-                className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
-              />
-              <span className="ml-2 text-sm text-gray-700">
-                {language === "id" ? "Aktifkan HTTPS" : "Enable HTTPS"}
-              </span>
-            </label>
           </div>
         </div>
       </div>

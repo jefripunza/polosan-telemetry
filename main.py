@@ -2,7 +2,7 @@
 # Standard Library
 import os
 import json
-from machine import Pin, I2C, SPI
+from machine import Pin, I2C, SPI, UART
 import uasyncio as asyncio
 
 ## ============================================== ##
@@ -38,7 +38,7 @@ db_json = DataJSON("db.json", {
     # tidak boleh berubah ketika import
     "device:id": "",
     "device:name": "",
-    "device:integration_mode": "", # webhook, mqtt, lora
+    "integration:mode": "", # webhook, mqtt, lora
     "wifi:ssid": "Polosan-"+device_id,
     "wifi:pass": "12345678",
     "web:port": 80,
