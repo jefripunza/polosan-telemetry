@@ -65,6 +65,52 @@ class Station:
         """Biar bisa if sta: ..."""
         return self.connected
 
+    def connect(self, ssid, password, timeout=10):
+        """
+        Connect to WiFi station with proper handling
+        Returns: (success: bool, message: str, ip: str)
+        """
+        import time
+        
+        try:
+            # Disconnect from current network if connected
+            if self.sta.isconnected():
+                print(f"Disconnecting from current network...")
+                self.sta.disconnect()
+                # Wait for disconnect to complete
+                time.sleep(1)
+            
+            # Activate station mode if not active
+            if not self.sta.active():
+                print("Activating station mode...")
+                self.sta.active(True)
+                time.sleep(1)
+            
+            print(f"Connecting to WiFi: {ssid}")
+            self.sta.connect(ssid, password)
+            
+            # Wait for connection with timeout
+            start_time = time.time()
+            while not self.sta.isconnected():
+                if time.time() - start_time > timeout:
+                    return False, f"Connection timeout after {timeout} seconds", ""
+                time.sleep(0.5)
+                print(".", end="")
+            
+            # Connection successful
+            ip_info = self.sta.ifconfig()
+            ip_address = ip_info[0]
+            print(f"\nConnected successfully! IP: {ip_address}")
+            
+            # Update connection status
+            self.connected = True
+            
+            return True, f"Connected to {ssid}", ip_address
+            
+        except Exception as e:
+            print(f"Connection error: {e}")
+            return False, f"Connection failed: {str(e)}", ""
+
     def get_ip(self):
         return self.sta.ifconfig()[0]
 

@@ -2,6 +2,7 @@
 # Standard Library
 import os
 import json
+import time
 from machine import Pin, I2C, SPI, UART
 import uasyncio as asyncio
 
@@ -492,6 +493,99 @@ async def wifi_list(body, query, params):
         "ssid_connnected": wifi_sta_ssid_connected, # untuk hide list yang sudah terhubung
     }}
 
+
+
+@app.post("/api/wifi/connect")
+async def wifi_connect(body, query, params):
+    result = middleware_use_token(query)
+    if result: return result
+
+    global station, wifi_sta_ssid_connected, wifi_sta_ip_address
+    try:
+        ssid = body.get("ssid")
+        password = body.get("password")
+        
+        if not ssid:
+            return {"message": "SSID is required", "status": 400}
+        if not password:
+            return {"message": "Password is required", "status": 400}
+        
+        print(f"Attempting to connect to WiFi: {ssid}")
+        
+        # Use the enhanced connect method
+        success, message, ip_address = station.connect(ssid, password, timeout=15)
+        
+        if success:
+            # Update global variables
+            wifi_sta_ssid_connected = ssid
+            wifi_sta_ip_address = ip_address
+            
+            # Auto upsert to database with key wifi:station (always save successful connections)
+            try:
+                saved_networks = db.get("wifi:station", [])
+                
+                # Check if network already exists
+                existing_network_index = None
+                for i, network in enumerate(saved_networks):
+                    if network.get("ssid") == ssid:
+                        existing_network_index = i
+                        break
+                
+                # Prepare network data with connection info
+                network_data = {
+                    "ssid": ssid,
+                    "password": password,
+                    "connected_at": time.time(),
+                    "last_ip": ip_address,
+                    "connection_count": 1  # Default for new networks
+                }
+                
+                if existing_network_index is not None:
+                    # Update existing network (preserve connection count)
+                    old_network = saved_networks[existing_network_index]
+                    network_data["connection_count"] = old_network.get("connection_count", 0) + 1
+                    saved_networks[existing_network_index] = network_data
+                    print(f"Updated saved network: {ssid} (connections: {network_data['connection_count']})")
+                else:
+                    # Add new network
+                    saved_networks.append(network_data)
+                    print(f"Saved new network: {ssid}")
+                
+                # Auto upsert to database
+                db.set("wifi:station", saved_networks)
+                print(f"Database updated with key 'wifi:station' - Total networks: {len(saved_networks)}")
+                
+            except Exception as db_error:
+                print(f"Database upsert error: {db_error}")
+                # Continue execution even if database save fails
+            
+            return {
+                "message": message,
+                "status": 200,
+                "data": {
+                    "ssid": ssid,
+                    "ip_address": ip_address,
+                    "saved": True,  # Always saved on successful connection
+                    "connection_count": network_data.get("connection_count", 1)
+                }
+            }
+        else:
+            return {
+                "message": message,
+                "status": 400,
+                "data": {
+                    "ssid": ssid,
+                    "connected": False
+                }
+            }
+            
+    except Exception as e:
+        print(f"WiFi connect error: {e}")
+        return {
+            "message": f"Connection error: {str(e)}", 
+            "status": 500
+        }
+
 # ------------------------------------------------ #
 
 @app.get("/*")
@@ -615,20 +709,46 @@ async def worker_wifi_station():
     is_connected = False
     while True:
         stations = db.get("wifi:station", [])
+        connected_station = None
+        
         if is_first_selected:
             is_first_selected = False
-            for station in stations:
-                if station.get("is_selected") is True:
-                    if wifi_sta_connect(station.get("ssid"), station.get("pass")):
+            for station_data in stations:
+                if station_data.get("is_selected") is True:
+                    if wifi_sta_connect(station_data.get("ssid"), station_data.get("pass")):
                         is_connected = True
+                        connected_station = station_data
                         break
         else:
-            for station in stations:
-                if wifi_sta_connect(station.get("ssid"), station.get("pass")):
+            for station_data in stations:
+                if wifi_sta_connect(station_data.get("ssid"), station_data.get("pass")):
                     is_connected = True
+                    connected_station = station_data
                     break
-        if is_connected:
+        
+        # Update connected_at timestamp if connection successful
+        if is_connected and connected_station:
+            try:
+                # Update the connected_at timestamp for the successful connection
+                updated_stations = db.get("wifi:station", [])
+                for i, station_data in enumerate(updated_stations):
+                    if station_data.get("ssid") == connected_station.get("ssid"):
+                        # Update connected_at and connection_count
+                        updated_stations[i]["connected_at"] = time.time()
+                        updated_stations[i]["last_ip"] = wifi_sta_ip_address
+                        updated_stations[i]["connection_count"] = station_data.get("connection_count", 0) + 1
+                        print(f"Updated connected_at for {connected_station.get('ssid')} - connections: {updated_stations[i]['connection_count']}")
+                        break
+                
+                # Save updated data back to database
+                db.set("wifi:station", updated_stations)
+                print(f"Database updated with connected_at timestamp for {connected_station.get('ssid')}")
+                
+            except Exception as db_error:
+                print(f"Database update error in worker_wifi_station: {db_error}")
+            
             break
+            
         await asyncio.sleep(0.1)
 
 
