@@ -1,11 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate, Outlet, useLocation, Link } from "react-router";
 import axios from "axios";
+import keyboardjs from "keyboardjs";
 
 import { useAppStore } from "@/store/useAppStore";
 import AppGuard from "@/components/guards/AppGuard";
 
 import { routers } from "@/routers";
+import { HOST_API } from "@/environment";
 
 interface Menu {
   name: string;
@@ -40,6 +42,9 @@ export default function AppLayout() {
     }
     if (path === "setting") {
       return language === "id" ? "Pengaturan" : "Settings";
+    }
+    if (path === "update-manager") {
+      return language === "id" ? "Pengelola Update" : "Update Manager";
     }
     return "-";
   }
@@ -178,6 +183,29 @@ export default function AppLayout() {
         </svg>
       );
     }
+    if (path === "update-manager") {
+      return (
+        <svg
+          className={iconClass}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+          />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M12 6v6l4 2"
+          />
+        </svg>
+      );
+    }
     return (
       <svg
         className={iconClass}
@@ -208,7 +236,7 @@ export default function AppLayout() {
     try {
       // Call logout API endpoint
       if (token) {
-        await axios.delete(`${window.location.origin}/api/auth/logout`, {
+        await axios.delete(`${HOST_API}/api/auth/logout`, {
           params: { token },
           timeout: 5000,
         });
@@ -222,6 +250,10 @@ export default function AppLayout() {
       navigate("/auth/login", { replace: true });
     }
   };
+
+  useEffect(() => {
+    // keyboarjs, ctrl+u+p
+  }, []);
 
   return (
     <AppGuard>

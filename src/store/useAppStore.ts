@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import axios from "axios";
+import { HOST_API } from "@/environment";
 
 export type Language = "id" | "en";
 
@@ -54,7 +55,7 @@ export const useAppStore = create<AppState>()(
 
         try {
           const response = await axios.get(
-            `${window.location.origin}/api/auth/token-validate`,
+            `${HOST_API}/api/auth/token-validate`,
             {
               params: { token },
               timeout: 5000,

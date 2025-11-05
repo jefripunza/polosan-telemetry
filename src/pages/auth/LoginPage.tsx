@@ -3,6 +3,7 @@ import { useAppStore } from "@/store/useAppStore";
 import { useNavigate } from "react-router";
 import axios from "axios";
 import { z } from "zod";
+import { HOST_API } from "@/environment";
 
 const loginSchema = z.object({
   password: z.string().min(1, "Password tidak boleh kosong"),
@@ -74,10 +75,8 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      // Use current hostname/origin for API calls
-      const hostUrl = window.location.origin;
       const response = await axios.post(
-        `${hostUrl}/api/auth/login`,
+        `${HOST_API}/api/auth/login`,
         {
           password: password,
         },

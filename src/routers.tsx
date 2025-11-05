@@ -16,6 +16,7 @@ import LoRaPage from "@/pages/app/LoRaPage";
 import PinPage from "@/pages/app/PinPage";
 import LogPage from "@/pages/app/LogPage";
 import SettingPage from "@/pages/app/SettingPage";
+import UpdateManager from "@/pages/app/UpdateManager";
 
 export const routers = [
   {
@@ -75,6 +76,10 @@ export const routers = [
       {
         path: "setting",
         Component: SettingPage,
+      },
+      {
+        path: "update-manager",
+        Component: UpdateManager,
       },
     ],
   },

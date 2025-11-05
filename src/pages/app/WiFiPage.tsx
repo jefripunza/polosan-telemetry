@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAppStore } from "@/store/useAppStore";
 import axios from "axios";
+import { HOST_API } from "@/environment";
 
 interface WiFiNetwork {
   ssid: string;
@@ -15,6 +16,7 @@ interface WiFiNetwork {
 
 interface SavedNetwork {
   ssid: string;
+  password?: string;
   lastConnected: string;
   autoConnect: boolean;
   connected: boolean;
@@ -68,7 +70,7 @@ export default function WiFiPage() {
       const token = useAppStore.getState().token;
 
       const response = await axios.get(
-        `${window.location.origin}/api/wifi/list?token=${token}`
+        `${HOST_API}/api/wifi/list?token=${token}`
       );
 
       if (response.data && response.data.data) {
@@ -96,7 +98,8 @@ export default function WiFiPage() {
         // Map saved networks to SavedNetwork format
         const savedNetworksList: SavedNetwork[] = saveds.map((saved: any) => ({
           ssid: saved.ssid || saved,
-          lastConnected: saved.lastConnected || "Unknown",
+          password: saved.password,
+          lastConnected: saved.connected_at ? new Date(saved.connected_at * 1000).toLocaleString() : "Unknown",
           autoConnect: saved.autoConnect || false,
           connected: saved.ssid === ssid_connnected,
         }));
@@ -131,18 +134,49 @@ export default function WiFiPage() {
     setIsConnecting(true);
     setConnectionStatus("connecting");
 
-    // Simulate connection attempt
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    try {
+      const token = useAppStore.getState().token;
+      
+      // Find the saved network to get the password
+      const savedNetwork = savedNetworks.find(network => network.ssid === ssid);
+      if (!savedNetwork) {
+        throw new Error("Saved network not found");
+      }
 
-    // Simulate success/failure
-    const success = Math.random() > 0.3;
-    setConnectionStatus(success ? "success" : "error");
-    setIsConnecting(false);
+      // Call the WiFi connect API
+      const response = await axios.post(
+        `${HOST_API}/api/wifi/connect`,
+        {
+          ssid: ssid,
+          password: savedNetwork.password || "", // Use stored password
+          save: true
+        },
+        {
+          params: { token },
+          timeout: 20000, // 20 second timeout
+        }
+      );
 
-    setTimeout(() => {
-      setConnectionStatus("idle");
-      setSelectedNetwork("");
-    }, 2000);
+      if (response.data.status === 200) {
+        setConnectionStatus("success");
+        // Refresh the network list to show updated connection status
+        setTimeout(() => {
+          handleScanNetworks();
+        }, 1000);
+      } else {
+        setConnectionStatus("error");
+      }
+    } catch (error: any) {
+      console.error("WiFi connection failed:", error);
+      setConnectionStatus("error");
+    } finally {
+      setIsConnecting(false);
+      
+      setTimeout(() => {
+        setConnectionStatus("idle");
+        setSelectedNetwork("");
+      }, 3000);
+    }
   };
 
   const handleConnect = async (pwd: string) => {
@@ -151,19 +185,44 @@ export default function WiFiPage() {
     setIsConnecting(true);
     setConnectionStatus("connecting");
 
-    // Simulate connection attempt
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    try {
+      const token = useAppStore.getState().token;
 
-    // Simulate success/failure
-    const success = Math.random() > 0.2;
-    setConnectionStatus(success ? "success" : "error");
-    setIsConnecting(false);
+      // Call the WiFi connect API
+      const response = await axios.post(
+        `${HOST_API}/api/wifi/connect`,
+        {
+          ssid: selectedNetwork,
+          password: pwd,
+          save: true
+        },
+        {
+          params: { token },
+          timeout: 20000, // 20 second timeout
+        }
+      );
 
-    setTimeout(() => {
-      setConnectionStatus("idle");
-      setSelectedNetwork("");
-      setPassword("");
-    }, 2000);
+      if (response.data.status === 200) {
+        setConnectionStatus("success");
+        // Refresh the network list to show updated connection status
+        setTimeout(() => {
+          handleScanNetworks();
+        }, 1000);
+      } else {
+        setConnectionStatus("error");
+      }
+    } catch (error: any) {
+      console.error("WiFi connection failed:", error);
+      setConnectionStatus("error");
+    } finally {
+      setIsConnecting(false);
+      
+      setTimeout(() => {
+        setConnectionStatus("idle");
+        setSelectedNetwork("");
+        setPassword("");
+      }, 3000);
+    }
   };
 
   const getSignalIcon = (signal: number) => {

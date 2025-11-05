@@ -24,4 +24,6 @@ dev-dist
 *.sln
 *.sw?
 
+.env
 web
+package-lock.json

@@ -3,6 +3,7 @@
 import os
 import json
 import time
+import neopixel
 from machine import Pin, I2C, SPI, UART
 import uasyncio as asyncio
 
@@ -24,6 +25,8 @@ from global_variable import  wifi_ap_is_ready, wifi_ap_ip_address, wifi_sta_is_o
 from i2c_lcd import I2cLcd
 from ds3231 import DS3231
 from sdcard import SDCard
+
+# oke sdfbkdsbfkdbkjd
 
 ## ============================================== ##
 # Konfigurasi JSON Database
@@ -86,9 +89,18 @@ pin_spi_sck  = 12
 # LCD-16x2 (0x27)
 
 # Buzzer (OK)
-pin_buzzer = 4
+# pin_buzzer = 4 # 4 | x
 
-# RS485 (?)
+# RGB ()
+pin_rgb = 48
+
+# SIM7600CE ()
+pin_tx3 = 6
+pin_rx3 = 7
+pin_pkey = 21
+pin_rst = 47
+
+# RS485 (OK)
 pin_rs485_rst = 14
 pin_rs485_tx2 = 15
 pin_rs485_rx2 = 16
@@ -105,7 +117,7 @@ pin_lora_dio0 = 42
 pin_sdcard_miso = pin_spi_miso
 pin_sdcard_mosi = pin_spi_mosi
 pin_sdcard_sck  = pin_spi_sck
-pin_sdcard_ss   = 40
+pin_sdcard_ss   = 10 # 40 | 10
 
 # RTC (OK)
 pin_rtc_sda = pin_sda
@@ -125,8 +137,12 @@ LCD_COLS = 16
 # Setup Variable
 
 # Buzzer
-buzzer = Pin(pin_buzzer, Pin.OUT)
-buzzer.off()
+# buzzer = Pin(pin_buzzer, Pin.OUT)
+# buzzer.on()
+
+# RGB
+rgb = neopixel.NeoPixel(Pin(pin_rgb), 1)
+rgb_value = 140
 
 # I2C
 i2c = I2C(0, scl=Pin(pin_scl), sda=Pin(pin_sda), freq=400000)
@@ -153,6 +169,47 @@ sdcard_cs = Pin(pin_sdcard_ss, Pin.OUT)
 
 ## ============================================== ##
 # Setup Special Function
+
+# RGB
+def matikan_semua():
+    """Matikan semua LED"""
+    rgb.fill((0, 0, 0))
+    rgb.write()
+def set_warna(r, g, b):
+    """Atur semua LED dengan warna yang sama (nilai 0-255)"""
+    rgb.fill((r, g, b))
+    rgb.write()
+def set_led(index, r, g, b):
+    """Atur warna LED tertentu (nilai 0-255)"""
+    rgb[index] = (r, g, b)
+    rgb.write()
+async def led_error(durasi=2):
+    end_time = time.time() + durasi
+    while time.time() < end_time:
+        set_warna(rgb_value, 0, 0)  # Merah
+        await asyncio.sleep(0.15)
+        matikan_semua()
+        await asyncio.sleep(0.15)
+    matikan_semua()
+async def led_warning(durasi=2):
+    end_time = time.time() + durasi
+    while time.time() < end_time:
+        set_warna(rgb_value, rgb_value, 0)  # Kuning
+        await asyncio.sleep(0.3)
+        matikan_semua()
+        await asyncio.sleep(0.3)
+    matikan_semua()
+async def led_success(durasi=1):
+    # Nyalakan hijau penuh
+    set_warna(0, rgb_value, 0)  # Hijau
+    time.sleep(durasi)
+    # Fade out
+    for i in range(rgb_value, -1, -5):
+        set_warna(0, i, 0)
+        await asyncio.sleep(0.02)
+    matikan_semua()
+def led_process(durasi=1):
+    set_warna(0, 0, rgb_value)  # Biru
 
 # LCD 16x2
 def display_render(row, col_start, text):
@@ -493,8 +550,6 @@ async def wifi_list(body, query, params):
         "ssid_connnected": wifi_sta_ssid_connected, # untuk hide list yang sudah terhubung
     }}
 
-
-
 @app.post("/api/wifi/connect")
 async def wifi_connect(body, query, params):
     result = middleware_use_token(query)
@@ -586,6 +641,30 @@ async def wifi_connect(body, query, params):
             "status": 500
         }
 
+@app.delete("/api/wifi/station")
+async def wifi_station_delete(body, query, params):
+    result = middleware_use_token(query)
+    if result: return result
+
+    global wifi_sta_ssid_connected
+    try:
+        ssid = body.get("ssid")
+        if not ssid:
+            return {"message": "SSID is required", "status": 400}
+        
+        # Remove the network from the saved networks list
+        saved_networks = db.get("wifi:station", [])
+        updated_networks = [network for network in saved_networks if network.get("ssid") != ssid]
+        
+        # Update the database
+        db.set("wifi:station", updated_networks)
+        print(f"Removed network: {ssid}")
+        
+        return {"message": "Network removed successfully", "status": 200}
+    except Exception as e:
+        print(f"Error removing network: {e}")
+        return {"message": f"Error removing network: {str(e)}", "status": 500}
+
 # ------------------------------------------------ #
 
 @app.get("/*")
@@ -615,6 +694,8 @@ async def worker_show_memory():
 async def worker_display():
     global wifi_ap_is_ready, wifi_ap_ip_address
     global wifi_sta_ssid_connected, wifi_sta_ip_address
+
+    await led_success()
 
     is_booting = True
     section = 0
@@ -707,6 +788,7 @@ async def worker_wifi_ap():
 async def worker_wifi_station():
     is_first_selected = True
     is_connected = False
+    led_process()
     while True:
         stations = db.get("wifi:station", [])
         connected_station = None
@@ -750,6 +832,7 @@ async def worker_wifi_station():
             break
             
         await asyncio.sleep(0.1)
+    await led_success()
 
 
 
@@ -763,7 +846,7 @@ async def worker_rtc_sync_time():
         is_online = wifi_sta_is_online == True # sumber bisa dari mana saja online nya
         if is_online == True:
             if buzzer_is_off == False:
-                buzzer.off()
+#                 buzzer.off()
                 buzzer_is_off = True
         if is_online == True:
             if rtc_is_sync_online_time == False:
@@ -818,6 +901,7 @@ async def worker_sdcard():
                 mounted = True
             except Exception as e:
                 print("Error mounting SD card:", e)
+                await led_error()
                 mounted = False
                 # tunggu dulu sebelum coba ulang
                 await asyncio.sleep(1)
@@ -864,7 +948,7 @@ async def worker_uart():
 async def main():
     await asyncio.gather(
         worker_show_memory(),
-        # worker_display(),
+        worker_display(),
         worker_wifi_ap(),
         worker_wifi_station(),
         worker_rtc_sync_time(),
